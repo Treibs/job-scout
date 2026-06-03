@@ -1,0 +1,36 @@
+name: daily-job-scout
+on:
+  schedule:
+    - cron: "0 11 * * *"      # 11:00 UTC daily (~6am US Central). Adjust to taste.
+  workflow_dispatch: {}        # allows manual runs too
+
+concurrency:
+  group: job-scout
+  cancel-in-progress: false
+
+permissions:
+  contents: write              # to commit state back
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          PROXY_URLS: ${{ secrets.PROXY_URLS }}   # optional
+        run: python scripts/run.py --config config/search.yaml
+      - name: Commit updated state
+        run: |
+          git config user.name "job-scout-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state/
+          git diff --staged --quiet || git commit -m "chore: nightly state update"
+          git push
