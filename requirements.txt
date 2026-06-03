@@ -1,0 +1,12 @@
+python-jobspy
+requests
+beautifulsoup4
+pydantic>=2
+pandas
+rapidfuzz
+sentence-transformers
+anthropic
+gspread
+google-auth
+pyyaml
+python-dotenv

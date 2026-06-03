@@ -1,0 +1,7 @@
+# Copy to config/sources.yaml (git-ignored). Toggle sources + per-source params.
+boards:                       # via JobSpy
+  enabled: true
+  sites: ["indeed", "google"]   # linkedin optional/risky; off by default
+  proxies: []                 # optional; "user:pass@host:port"
+ats:
+  enabled: true               # uses config/companies.yaml
