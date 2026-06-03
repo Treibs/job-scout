@@ -22,6 +22,13 @@ from ..models import SHEET_COLUMNS
 log = logging.getLogger("job_scout.html_report")
 
 
+def _safe_http_url(url: str) -> str:
+    """Return ``url`` only if it's a plain http(s) link, else "" (so the UI won't
+    render it as a clickable href). Blocks javascript:/data:/vbscript: etc."""
+    u = (url or "").strip()
+    return u if u[:7].lower() == "http://" or u[:8].lower() == "https://" else ""
+
+
 def render(csv_path, html_path=None, generated_at: str | None = None) -> Path | None:
     """Read ``csv_path`` and write a self-contained dashboard to ``html_path``
     (default: the CSV path with a .html suffix). Returns the html path, or None
@@ -37,6 +44,14 @@ def render(csv_path, html_path=None, generated_at: str | None = None) -> Path | 
             {k: (r.get(k) or "") for k in SHEET_COLUMNS}
             for r in csv.DictReader(f)
         ]
+
+    # Sanitize the only field rendered into an href. Job URLs come from external
+    # sources, and HTML-escaping an attribute does NOT neutralize a `javascript:`
+    # scheme — so drop anything that isn't a plain http(s) link (the UI then
+    # renders a non-clickable title for it). Defends the local dashboard from a
+    # malicious posting URL (XSS).
+    for r in rows:
+        r["apply_url"] = _safe_http_url(r["apply_url"])
 
     data_json = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     generated = generated_at or datetime.now().strftime("%b %d, %Y · %H:%M")
