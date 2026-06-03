@@ -101,8 +101,15 @@ def _write_tracker(jobs: list[Job], config: Config) -> None:
 
             google_sheets.write_sheet(jobs, config)
         else:
-            from .sinks import csv_file
+            from .sinks import csv_file, html_report
 
             csv_file.write_csv(jobs, config)
+            # Regenerate the filterable HTML dashboard from the upserted CSV so the
+            # cron keeps it fresh. Built from the file (not `jobs`) so it includes
+            # carried-over / stale rows. Never let it fail the run.
+            try:
+                html_report.render(csv_file.output_path(config))
+            except Exception as e:  # noqa: BLE001
+                log.error("html report failed: %s", e)
     except Exception as e:  # noqa: BLE001 — never let a sink failure lose the run's data
         log.error("%s sink write failed: %s", sink, e)

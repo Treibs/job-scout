@@ -50,14 +50,19 @@ _FIRST_SEEN_COL = "first_seen"
 _SCORE_COL = "score"
 
 
-def _resolve_path(config) -> Path:
-    """Where to write the CSV. ``JOBS_CSV_PATH`` (config.env.jobs_csv_path) wins;
-    relative paths resolve against the repo root, matching the state sink."""
+def output_path(config) -> Path:
+    """Where the CSV is written. ``JOBS_CSV_PATH`` (config.env.jobs_csv_path) wins;
+    relative paths resolve against the repo root, matching the state sink. Public
+    so the HTML report can target the same file the pipeline just wrote."""
     raw = getattr(getattr(config, "env", None), "jobs_csv_path", None)
     if not raw:
         return _DEFAULT_PATH
     p = Path(raw)
     return p if p.is_absolute() else (_REPO_ROOT / p)
+
+
+# Back-compat internal alias.
+_resolve_path = output_path
 
 
 def _read_existing(path: Path) -> dict[str, dict]:
