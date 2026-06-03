@@ -1,0 +1,22 @@
+# ── personal data — NEVER commit ────────────────────────────────────────────
+resume/resume.md
+config/*.yaml
+!config/*.example.yaml
+.env
+service_account.json
+*service_account*.json
+
+# ── python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── local state scratch (the committed state/ files are added explicitly) ─────
+state/*.local
+.DS_Store

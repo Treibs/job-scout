@@ -1,0 +1,17 @@
+# Copy to config/companies.yaml (git-ignored). Target employers for direct-ATS
+# pulls. These are fake placeholders — see docs/finding-ats-slugs.md to find the
+# real ats + slug for any company from its careers-page URL.
+companies:
+  - name: "Example Industrial Co"
+    ats: "greenhouse"         # greenhouse | lever | ashby | smartrecruiters | workday
+    slug: "exampleindustrial" # board token / company slug
+
+  - name: "Example Startup Inc"
+    ats: "lever"
+    slug: "examplestartup"
+
+  - name: "Example Bank"
+    ats: "workday"
+    tenant: "examplebank"
+    site: "External"
+    datacenter: "wd1"

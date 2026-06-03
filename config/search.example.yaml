@@ -1,0 +1,22 @@
+# Copy to config/search.yaml (git-ignored) and edit for your search.
+keywords:
+  - "Director AI"
+  - "Senior Manager AI"
+  - "AI Adoption"
+  - "AI Innovation"
+location:
+  query: "Chicago, IL"        # free text; sources interpret it
+  distance_miles: 50
+  remote_policy: "include"    # include | exclude | only
+seniority:                    # used by sources that support it + as a scoring gate
+  - "director"
+  - "executive"
+freshness_hours: 72           # only fetch postings newer than this
+results_per_board: 30         # keep low to stay under detection thresholds
+hard_filters:
+  exclude_industries:         # matched against company industry + JD text
+    - "healthcare"
+    - "biotech"
+    - "pharma"
+  exclude_keywords: []        # JD-level kill words
+  include_keywords: []        # optional must-haves

@@ -1,0 +1,25 @@
+# Copy to config/scoring.yaml (git-ignored). The rubric + weights are entirely
+# yours — there are no opinionated defaults baked into code.
+dimensions:
+  - id: "mission_impact"
+    weight: 5
+    prompt: "How well does this role's mission and impact align with the candidate's stated goals?"
+  - id: "compensation"
+    weight: 4
+    prompt: "Based on any comp signals in the listing, how strong is the compensation fit?"
+  - id: "learning_growth"
+    weight: 3
+    prompt: "How much learning and growth does this role offer relative to the candidate's trajectory?"
+  - id: "work_life_balance"
+    weight: 2
+    prompt: "What does the listing signal about work-life balance?"
+  - id: "prestige"
+    weight: 1
+    prompt: "How prestigious is this role/employer for the candidate's positioning?"
+scale: [0, 5]                  # each dimension scored 0-5
+role_fit_gate: true           # if true, hard-reject roles that fail the seniority/role match
+model: "claude-sonnet-4-5"    # configurable
+pre_filter:
+  enabled: true
+  method: "embedding"         # embedding | keyword | none
+  threshold: 0.75
