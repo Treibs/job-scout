@@ -38,6 +38,10 @@ class HardFilters(BaseModel):
     # only — so it won't false-drop a non-tech role that merely name-drops a
     # tech vendor in its description). Use to exclude Big Tech / AI labs.
     exclude_companies: list[str] = Field(default_factory=list)
+    # Drop a job if its TITLE matches any of these (substring, title field only —
+    # so a role that merely mentions e.g. "account executives" in its description
+    # survives). Use to cut role types like sales/AE that aren't the target.
+    exclude_title_keywords: list[str] = Field(default_factory=list)
 
 
 class SearchCfg(BaseModel):

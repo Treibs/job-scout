@@ -114,6 +114,7 @@ def _hard_filters(jobs: list[Job], config: Config) -> list[Job]:
     exclude_keywords = [s.lower() for s in (hf.exclude_keywords or []) if s.strip()]
     include_keywords = [s.lower() for s in (hf.include_keywords or []) if s.strip()]
     exclude_companies = [s.lower() for s in (hf.exclude_companies or []) if s.strip()]
+    exclude_title_keywords = [s.lower() for s in (hf.exclude_title_keywords or []) if s.strip()]
 
     seniority = [s for s in (search.seniority or []) if s and s.strip()]
     gate_on = bool(seniority) and bool(config.scoring.role_fit_gate)
@@ -134,6 +135,11 @@ def _hard_filters(jobs: list[Job], config: Config) -> list[Job]:
         # ── excluded employers (company field only) ─────────────────────
         company = (job.company or "").lower()
         if any(term in company for term in exclude_companies):
+            continue
+
+        # ── excluded role types (title field only) ──────────────────────
+        title_l = (job.title or "").lower()
+        if any(term in title_l for term in exclude_title_keywords):
             continue
 
         text = _job_text(job)

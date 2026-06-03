@@ -39,6 +39,7 @@ def make_config(
     exclude_keywords=None,
     include_keywords=None,
     exclude_companies=None,
+    exclude_title_keywords=None,
 ):
     """Build a Config with no LLM key and the pre-filter disabled, so score_jobs
     reduces to just the hard-filter stage."""
@@ -52,6 +53,7 @@ def make_config(
                 exclude_keywords=exclude_keywords or [],
                 include_keywords=include_keywords or [],
                 exclude_companies=exclude_companies or [],
+                exclude_title_keywords=exclude_title_keywords or [],
             ),
         ),
         companies=CompaniesCfg(companies=[]),
@@ -121,6 +123,26 @@ def test_exclude_companies_matches_company_not_description():
     jobs = [_job("AI Director", company="Caterpillar", description="Experience with Microsoft Azure required.")]
     out = score_jobs(jobs, cfg)
     assert len(out) == 1  # company is Caterpillar, not Microsoft -> kept
+
+
+# ── excluded role types (title field only) ───────────────────────────────────
+def test_exclude_title_keywords_drops_sales_roles():
+    cfg = make_config(exclude_title_keywords=["account executive", "sales representative"])
+    jobs = [
+        _job("Strategic Account Executive, AI Solutions"),  # excluded
+        _job("Sales Representative"),                        # excluded
+        _job("Director of Artificial Intelligence"),         # kept
+    ]
+    out = titles(score_jobs(jobs, cfg))
+    assert out == ["Director of Artificial Intelligence"]
+
+
+def test_exclude_title_keywords_matches_title_not_description():
+    """A non-sales role that mentions account executives in the JD survives."""
+    cfg = make_config(exclude_title_keywords=["account executive"])
+    jobs = [_job("Director, AI Enablement", description="Partner with account executives across sales.")]
+    out = score_jobs(jobs, cfg)
+    assert len(out) == 1  # title isn't a sales role -> kept
 
 
 # ── remote policy ────────────────────────────────────────────────────────────
