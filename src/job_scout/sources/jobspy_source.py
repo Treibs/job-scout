@@ -196,6 +196,9 @@ class JobSpySource:
                 kwargs["is_remote"] = is_remote_request
             if proxies is not None:
                 kwargs["proxies"] = proxies
+            # LinkedIn JD text needs a per-job follow-up request — opt-in (block-prone).
+            if "linkedin" in sites and getattr(boards, "linkedin_fetch_description", False):
+                kwargs["linkedin_fetch_description"] = True
 
             try:
                 df = scrape_jobs(**kwargs)

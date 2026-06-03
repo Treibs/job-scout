@@ -92,8 +92,12 @@ class ScoringCfg(BaseModel):
 # ── sources.yaml ────────────────────────────────────────────────────────────
 class BoardsCfg(BaseModel):
     enabled: bool = True
-    sites: list[str] = Field(default_factory=lambda: ["indeed", "google"])
+    sites: list[str] = Field(default_factory=lambda: ["indeed", "linkedin"])
     proxies: list[str] = Field(default_factory=list)
+    # LinkedIn only returns a description with a SECOND request per job. It hugely
+    # improves LLM scoring (JD text) but makes LinkedIn far more block-prone at
+    # volume. Off by default; turn on once proxies are configured / volume is low.
+    linkedin_fetch_description: bool = False
 
 
 class AtsCfg(BaseModel):
