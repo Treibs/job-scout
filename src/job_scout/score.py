@@ -26,12 +26,25 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import Config
 from .models import Job
 
 log = logging.getLogger("job_scout.score")
+
+# Survivors are scored with one independent LLM call each — run them concurrently
+# so a daily run of ~100 jobs finishes in minutes (well under the cron timeout)
+# instead of ~30 min serial. Override with JOB_SCOUT_SCORE_CONCURRENCY. Kept
+# modest to stay friendly to the model's rate limits (e.g. MiniMax 1000/5h).
+def _score_concurrency() -> int:
+    try:
+        n = int(os.getenv("JOB_SCOUT_SCORE_CONCURRENCY", "6"))
+    except ValueError:
+        n = 6
+    return max(1, min(n, 16))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -260,27 +273,45 @@ def _llm_score(jobs: list[Job], config: Config) -> list[Job]:
     scale_lo, scale_hi = scale[0], scale[-1]
     resume = config.resume_text or ""
 
-    for job in jobs:
+    def score_one_safe(job: Job) -> dict | None:
+        """Score one job, isolating its failure — one bad job never kills the batch."""
         try:
-            result = _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job)
-        except Exception as e:  # noqa: BLE001 — one bad job must not kill the batch
+            return _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job)
+        except Exception as e:  # noqa: BLE001
             log.warning("LLM scoring error for %r: %s", job.title, e)
-            result = None
+            return None
 
-        if result is None:
-            job.score = None
-            job.red_flags = (job.red_flags or []) + ["scoring_failed"]
-            continue
+    workers = _score_concurrency()
+    log.info("LLM scoring %d job(s) with concurrency %d", len(jobs), workers)
 
-        dim_scores = result.get("dimension_scores") or {}
-        job.dimension_scores = dim_scores
-        job.score = _weighted_overall(dim_scores, dimensions, scale_lo, scale_hi)
-        job.rationale = result.get("rationale")
-        rf = result.get("red_flags")
-        job.red_flags = rf if isinstance(rf, list) else ([] if rf in (None, "") else [str(rf)])
-        job.comp_estimate = result.get("comp_estimate")
+    if workers == 1:
+        results = [(job, score_one_safe(job)) for job in jobs]
+    else:
+        # anthropic.Anthropic is safe to share across threads (httpx under the hood).
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(score_one_safe, job): job for job in jobs}
+            results = [(futures[f], f.result()) for f in futures]
+
+    for job, result in results:
+        _apply_score(job, result, dimensions, scale_lo, scale_hi)
 
     return jobs
+
+
+def _apply_score(job: Job, result: dict | None, dimensions, scale_lo, scale_hi) -> None:
+    """Write one scoring result onto its Job (None -> mark scoring_failed)."""
+    if result is None:
+        job.score = None
+        job.red_flags = (job.red_flags or []) + ["scoring_failed"]
+        return
+
+    dim_scores = result.get("dimension_scores") or {}
+    job.dimension_scores = dim_scores
+    job.score = _weighted_overall(dim_scores, dimensions, scale_lo, scale_hi)
+    job.rationale = result.get("rationale")
+    rf = result.get("red_flags")
+    job.red_flags = rf if isinstance(rf, list) else ([] if rf in (None, "") else [str(rf)])
+    job.comp_estimate = result.get("comp_estimate")
 
 
 def _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job) -> dict | None:
