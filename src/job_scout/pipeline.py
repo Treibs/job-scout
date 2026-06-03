@@ -10,7 +10,8 @@ contract the module authors build to:
     dedupe.dedupe(jobs: list[Job], seen: dict[str, dict])    -> list[Job]
     score.score_jobs(jobs: list[Job], config: Config)        -> list[Job]   # sorted desc
     sinks.state.load_state(config) / save_state(jobs, config)
-    sinks.google_sheets.write_sheet(jobs: list[Job], config)
+    sinks.csv_file.write_csv(jobs: list[Job], config)        # default sink
+    sinks.google_sheets.write_sheet(jobs: list[Job], config) # if env.sink="google_sheets"
 
 Sources:
     sources.jobspy_source.JobSpySource           (a `Source` — boards)
@@ -70,7 +71,6 @@ def run_pipeline(config: Config) -> list[Job]:
     """Run the full discovery+scoring pipeline. Returns the ranked jobs written."""
     from . import normalize, dedupe, score
     from .sinks import state as state_sink
-    from .sinks import google_sheets
 
     raw = _gather(config)
     log.info("gathered %d raw listings", len(raw))
@@ -86,10 +86,23 @@ def run_pipeline(config: Config) -> list[Job]:
     log.info("%d jobs after scoring/filtering", len(jobs))
 
     # Sinks: write the tracker, then persist state back to the repo.
-    try:
-        google_sheets.write_sheet(jobs, config)
-    except Exception as e:  # noqa: BLE001 — never let a sink failure lose the run's data
-        log.error("sheet write failed: %s", e)
-
+    _write_tracker(jobs, config)
     state_sink.save_state(jobs, config)
     return jobs
+
+
+def _write_tracker(jobs: list[Job], config: Config) -> None:
+    """Write the chosen tracker sink. A sink failure is logged, never raised, so
+    it can't lose the run's data (state is still persisted by the caller)."""
+    sink = (getattr(config.env, "sink", None) or "csv").lower()
+    try:
+        if sink == "google_sheets":
+            from .sinks import google_sheets
+
+            google_sheets.write_sheet(jobs, config)
+        else:
+            from .sinks import csv_file
+
+            csv_file.write_csv(jobs, config)
+    except Exception as e:  # noqa: BLE001 — never let a sink failure lose the run's data
+        log.error("%s sink write failed: %s", sink, e)

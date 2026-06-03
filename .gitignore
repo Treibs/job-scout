@@ -20,3 +20,11 @@ venv/
 # ── local state scratch (the committed state/ files are added explicitly) ─────
 state/*.local
 .DS_Store
+
+# ── CSV tracker output — personal job data, keep local (never commit) ─────────
+output/
+
+# ── runtime dedup state — kept LOCAL for the Kitsune cron deployment (this disk
+#    persists between runs, unlike CI). Holds personal job history; don't commit.
+state/seen_hashes.json
+state/snapshot.sqlite
