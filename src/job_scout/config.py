@@ -103,6 +103,9 @@ class EnvCfg(BaseModel):
     google_service_account_json: str | None = None  # raw JSON or a path
     sheet_id: str | None = None
     proxy_urls: list[str] = Field(default_factory=list)
+    # Which tracker sink to write. "csv" needs no external service or creds.
+    sink: Literal["csv", "google_sheets"] = "csv"
+    jobs_csv_path: str | None = None  # csv sink output (default: output/jobs.csv)
 
 
 # ── aggregate ───────────────────────────────────────────────────────────────
@@ -129,6 +132,8 @@ def _load_env() -> EnvCfg:
         google_service_account_json=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
         sheet_id=os.getenv("SHEET_ID"),
         proxy_urls=proxies,
+        sink=(os.getenv("JOB_SCOUT_SINK") or "csv").strip().lower(),
+        jobs_csv_path=os.getenv("JOBS_CSV_PATH"),
     )
 
 

@@ -292,7 +292,11 @@ def _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job) -> di
         try:
             resp = client.messages.create(
                 model=model,
-                max_tokens=1024,
+                # Reasoning models (e.g. MiniMax-M2.5) spend tokens on a hidden
+                # `thinking` block before the answer; too low a ceiling and the
+                # run ends mid-thought with no JSON text block. 4096 leaves room
+                # for the reasoning plus the small JSON payload.
+                max_tokens=4096,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )

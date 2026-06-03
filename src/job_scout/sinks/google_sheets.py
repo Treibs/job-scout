@@ -16,23 +16,13 @@ dep just to import the module.
 from __future__ import annotations
 
 import json
-from datetime import date, datetime
 from pathlib import Path
 
-from ..models import Job, SHEET_COLUMNS, STATUS_STALE
+from ..models import Job, SHEET_COLUMNS, STATUS_STALE, job_to_row
 
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 _WORKSHEET_NAME = "jobs"
-
-# scoring.yaml dimension id  ->  SHEET_COLUMNS column name.
-_DIMENSION_TO_COLUMN = {
-    "mission_impact": "mission",
-    "compensation": "comp",
-    "learning_growth": "learning",
-    "work_life_balance": "wlb",
-    "prestige": "prestige",
-}
 
 
 def write_sheet(jobs: list[Job], config) -> None:
@@ -160,38 +150,8 @@ def _ensure_header(worksheet) -> None:
 
 
 def _job_to_row(job: Job) -> list:
-    """Build a row in SHEET_COLUMNS order from a Job (defensive about None)."""
-    dims = job.dimension_scores or {}
-    dim_values = {
-        col: dims.get(dim_id) for dim_id, col in _DIMENSION_TO_COLUMN.items()
-    }
-
-    field_map = {
-        "score": job.score,
-        "mission": dim_values.get("mission"),
-        "comp": dim_values.get("comp"),
-        "learning": dim_values.get("learning"),
-        "wlb": dim_values.get("wlb"),
-        "prestige": dim_values.get("prestige"),
-        "title": job.title,
-        "company": job.company,
-        "location": job.location,
-        "comp_estimate": job.comp_estimate,
-        "source": job.source,
-        "date_posted": _iso(job.date_posted),
-        "first_seen": _iso(job.first_seen),
-        "apply_url": job.url,
-        "status": job.status,
-        "rationale": job.rationale,
-        "red_flags": ", ".join(job.red_flags) if job.red_flags else "",
-    }
-    return [_cell(field_map.get(col)) for col in SHEET_COLUMNS]
-
-
-def _iso(value) -> str | None:
-    if isinstance(value, (date, datetime)):
-        return value.isoformat()
-    return value
+    """Build a sheet row from a Job (None rendered as empty string)."""
+    return [_cell(v) for v in job_to_row(job)]
 
 
 def _cell(value):

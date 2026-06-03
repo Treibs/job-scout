@@ -73,8 +73,9 @@ class Job:
         return d
 
 
-# The Google Sheet column order (sinks/google_sheets.py + scripts/setup_sheet.py
-# both import this so the header and the row-writer never drift apart).
+# The tracker column order. Every sink (google_sheets.py, csv_file.py) and
+# scripts/setup_sheet.py import this so the header and the row-writer never drift
+# apart.
 SHEET_COLUMNS: list[str] = [
     "score",
     "mission",
@@ -94,3 +95,50 @@ SHEET_COLUMNS: list[str] = [
     "rationale",
     "red_flags",
 ]
+
+# scoring.yaml dimension id  ->  SHEET_COLUMNS column name.
+DIMENSION_TO_COLUMN: dict[str, str] = {
+    "mission_impact": "mission",
+    "compensation": "comp",
+    "learning_growth": "learning",
+    "work_life_balance": "wlb",
+    "prestige": "prestige",
+}
+
+
+def _iso_or_value(value):
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def job_to_row(job: "Job") -> list:
+    """Build a row in ``SHEET_COLUMNS`` order from a Job.
+
+    Values are returned raw — ``None`` stays ``None`` (each sink decides how to
+    render it; Sheets and CSV both turn it into an empty string). This is the
+    single source of truth for the Job→row mapping, shared by every sink.
+    """
+    dims = job.dimension_scores or {}
+    dim_values = {col: dims.get(dim_id) for dim_id, col in DIMENSION_TO_COLUMN.items()}
+
+    field_map = {
+        "score": job.score,
+        "mission": dim_values.get("mission"),
+        "comp": dim_values.get("comp"),
+        "learning": dim_values.get("learning"),
+        "wlb": dim_values.get("wlb"),
+        "prestige": dim_values.get("prestige"),
+        "title": job.title,
+        "company": job.company,
+        "location": job.location,
+        "comp_estimate": job.comp_estimate,
+        "source": job.source,
+        "date_posted": _iso_or_value(job.date_posted),
+        "first_seen": _iso_or_value(job.first_seen),
+        "apply_url": job.url,
+        "status": job.status,
+        "rationale": job.rationale,
+        "red_flags": ", ".join(job.red_flags) if job.red_flags else "",
+    }
+    return [field_map.get(col) for col in SHEET_COLUMNS]
