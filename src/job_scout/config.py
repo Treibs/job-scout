@@ -34,6 +34,10 @@ class HardFilters(BaseModel):
     exclude_industries: list[str] = Field(default_factory=list)
     exclude_keywords: list[str] = Field(default_factory=list)
     include_keywords: list[str] = Field(default_factory=list)
+    # Drop a job if its EMPLOYER matches any of these (substring, company field
+    # only — so it won't false-drop a non-tech role that merely name-drops a
+    # tech vendor in its description). Use to exclude Big Tech / AI labs.
+    exclude_companies: list[str] = Field(default_factory=list)
 
 
 class SearchCfg(BaseModel):

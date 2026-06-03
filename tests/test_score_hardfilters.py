@@ -38,6 +38,7 @@ def make_config(
     exclude_industries=None,
     exclude_keywords=None,
     include_keywords=None,
+    exclude_companies=None,
 ):
     """Build a Config with no LLM key and the pre-filter disabled, so score_jobs
     reduces to just the hard-filter stage."""
@@ -50,6 +51,7 @@ def make_config(
                 exclude_industries=exclude_industries or [],
                 exclude_keywords=exclude_keywords or [],
                 include_keywords=include_keywords or [],
+                exclude_companies=exclude_companies or [],
             ),
         ),
         companies=CompaniesCfg(companies=[]),
@@ -80,6 +82,10 @@ def titles(jobs):
     return [j.title for j in jobs]
 
 
+def titles_companies(jobs):
+    return [(j.title, j.company) for j in jobs]
+
+
 # ── no-LLM passthrough ───────────────────────────────────────────────────────
 def test_no_key_returns_jobs_unscored():
     cfg = make_config()
@@ -91,6 +97,30 @@ def test_no_key_returns_jobs_unscored():
 
 def test_empty_jobs_returns_empty():
     assert score_jobs([], make_config()) == []
+
+
+# ── excluded employers (company field only) ──────────────────────────────────
+def test_exclude_companies_drops_by_employer():
+    cfg = make_config(exclude_companies=["google", "amazon", "anthropic"])
+    jobs = [
+        _job("Head of AI", company="Google"),            # excluded
+        _job("Head of AI", company="Amazon Web Services"),  # excluded (substring)
+        _job("Head of AI", company="Caterpillar Inc."),  # kept
+        _job("Head of AI", company="Northern Trust"),    # kept
+    ]
+    out = titles_companies(score_jobs(jobs, cfg))
+    assert ("Head of AI", "Caterpillar Inc.") in out
+    assert ("Head of AI", "Northern Trust") in out
+    assert all(c not in ("Google", "Amazon Web Services") for _, c in out)
+    assert len(out) == 2
+
+
+def test_exclude_companies_matches_company_not_description():
+    """A non-tech employer that merely name-drops a tech vendor in the JD is kept."""
+    cfg = make_config(exclude_companies=["microsoft"])
+    jobs = [_job("AI Director", company="Caterpillar", description="Experience with Microsoft Azure required.")]
+    out = score_jobs(jobs, cfg)
+    assert len(out) == 1  # company is Caterpillar, not Microsoft -> kept
 
 
 # ── remote policy ────────────────────────────────────────────────────────────
