@@ -94,10 +94,11 @@ class BoardsCfg(BaseModel):
     enabled: bool = True
     sites: list[str] = Field(default_factory=lambda: ["indeed", "linkedin"])
     proxies: list[str] = Field(default_factory=list)
-    # LinkedIn only returns a description with a SECOND request per job. It hugely
-    # improves LLM scoring (JD text) but makes LinkedIn far more block-prone at
-    # volume. Off by default; turn on once proxies are configured / volume is low.
+    # LinkedIn only returns a description with a SECOND request per job. When on,
+    # the enrich stage fetches JDs for only the top `linkedin_enrich_max` most
+    # résumé-relevant roles (cached, paced) — safe without proxies at that volume.
     linkedin_fetch_description: bool = False
+    linkedin_enrich_max: int = 30
 
 
 class AtsCfg(BaseModel):
