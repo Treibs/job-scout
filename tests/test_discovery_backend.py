@@ -138,3 +138,23 @@ def test_strategist_guard_drops_tracked_and_protects_core():
     assert [k["keyword"] for k in out["add_keywords"]] == ["AI Governance"]
     assert [c["name"] for c in out["add_companies"]] == ["U.S. Bank"]
     assert out["remove_keywords"] == ["Old Experiment"]  # core "AI Strategy" protected
+
+
+def test_strategist_filter_coerces_null_and_numeric_identity_fields():
+    """A model emitting null/numeric keyword or name must not crash the guard
+    (regression: `.get(field, "")` returns None when the key is present with a
+    null value, so the old `.lower()` raised AttributeError)."""
+    raw = {
+        "add_keywords": [{"keyword": None, "relevance": 0.9},   # explicit null
+                         {"keyword": 123, "relevance": 0.9},    # numeric
+                         {"keyword": "AI Governance", "relevance": 0.9}],
+        "add_companies": [{"name": None, "relevance": 0.9},
+                          {"name": "U.S. Bank", "relevance": 0.9}],
+        "remove_keywords": [],
+        "notes": "",
+    }
+    digest = {"current_keywords": [], "current_companies": [], "excluded_companies": []}
+    out = strategist._guard(strategist._filter(raw, 0.7), digest)  # must not raise
+    # null/numeric coerced to strings ("" and "123"); nothing dropped by the guard
+    assert [k["keyword"] for k in out["add_keywords"]] == ["", "123", "AI Governance"]
+    assert [c["name"] for c in out["add_companies"]] == ["", "U.S. Bank"]

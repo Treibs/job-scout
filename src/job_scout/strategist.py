@@ -133,9 +133,10 @@ def _guard(result: dict, digest_data: dict) -> dict:
 
     result["add_keywords"] = [k for k in result["add_keywords"]
                               if k.get("keyword", "").lower() not in cur_kw]
-    result["add_companies"] = [c for c in result["add_companies"]
-                               if c.get("name", "").lower() not in cur_co
-                               and c.get("name", "").lower() not in excl]
+    result["add_companies"] = [
+        c for c in result["add_companies"]
+        if (name := c.get("name", "").lower()) not in cur_co and name not in excl
+    ]
     # Removals only apply to non-core (strategist-added) keywords.
     result["remove_keywords"] = [k for k in result["remove_keywords"] if k.lower() not in cur_kw]
     return result
@@ -147,8 +148,14 @@ def _filter(parsed: dict, threshold: float) -> dict:
         for it in items or []:
             try:
                 if float(it.get("relevance", 0)) >= threshold:
+                    # Coerce identity fields to str — the model may emit null or a
+                    # number, and downstream code calls .lower()/dict-indexes them.
+                    if "keyword" in it:
+                        it["keyword"] = str(it.get("keyword") or "")
+                    if "name" in it:
+                        it["name"] = str(it.get("name") or "")
                     out.append(it)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError):
                 continue
         return out
 
