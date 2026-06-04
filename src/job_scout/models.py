@@ -18,12 +18,15 @@ from typing import Any
 # Tracker lifecycle states (also the allowed values for `Job.status`).
 STATUS_NEW = "new"
 STATUS_REVIEWING = "reviewing"
+STATUS_INTERESTED = "interested"  # user flagged from the dashboard
 STATUS_APPLIED = "applied"
+STATUS_PASS = "pass"  # user dismissed from the dashboard
 STATUS_REJECTED = "rejected"
 STATUS_ARCHIVED = "archived"
 STATUS_STALE = "stale"  # listing disappeared from source
 VALID_STATUSES = frozenset(
-    {STATUS_NEW, STATUS_REVIEWING, STATUS_APPLIED, STATUS_REJECTED, STATUS_ARCHIVED, STATUS_STALE}
+    {STATUS_NEW, STATUS_REVIEWING, STATUS_INTERESTED, STATUS_APPLIED, STATUS_PASS,
+     STATUS_REJECTED, STATUS_ARCHIVED, STATUS_STALE}
 )
 
 
@@ -47,6 +50,7 @@ class Job:
     date_posted: date | None = None
     description: str | None = None
     comp_text: str | None = None  # raw comp string if present in the listing
+    search_term: str | None = None  # board keyword that surfaced this (None for ATS)
 
     # ── populated by scorer (score.py) ──────────────────────────────────
     score: float | None = None  # overall_score, 0-100

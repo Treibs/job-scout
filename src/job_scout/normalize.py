@@ -111,6 +111,8 @@ def normalize_jobs(raw: list[dict]) -> list[Job]:
             continue
 
         url = str(row["url"])
+        raw_meta = row.get("_raw") or {}
+        search_term = raw_meta.get("search_term") if isinstance(raw_meta, dict) else None
         job = Job(
             id=_provisional_id(url),
             title=str(row["title"]),
@@ -122,6 +124,7 @@ def normalize_jobs(raw: list[dict]) -> list[Job]:
             date_posted=_parse_date(row.get("date_posted")),
             description=row.get("description"),
             comp_text=row.get("comp_text"),
+            search_term=search_term,
             status=STATUS_NEW,
             # first_seen / last_seen are set by dedupe/state.
             first_seen=None,

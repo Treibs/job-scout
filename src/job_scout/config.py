@@ -158,7 +158,7 @@ def load_config(search_path: str | Path, resume_path: str | Path | None = None) 
     resume_p = Path(resume_path) if resume_path else cfg_dir.parent / "resume" / "resume.md"
     resume_text = resume_p.read_text() if Path(resume_p).exists() else ""
 
-    return Config(
+    cfg = Config(
         search=SearchCfg(**_read_yaml(search_p)),
         companies=CompaniesCfg(**_read_yaml(cfg_dir / "companies.yaml")),
         scoring=ScoringCfg(**_read_yaml(cfg_dir / "scoring.yaml")),
@@ -167,3 +167,40 @@ def load_config(search_path: str | Path, resume_path: str | Path | None = None) 
         resume_text=resume_text,
         config_dir=str(cfg_dir),
     )
+    _merge_discovery_additions(cfg, cfg_dir / "discovery_additions.yaml")
+    return cfg
+
+
+def _merge_discovery_additions(cfg: Config, path: Path) -> None:
+    """Fold the strategist-managed ``discovery_additions.yaml`` into the config.
+
+    Kept separate so the user's hand-curated (commented) search/companies YAML is
+    never rewritten by the autonomous loop. Appends keywords, companies, and
+    exclude_companies, de-duping against what's already there. Missing file = no-op.
+    """
+    add = _read_yaml(path)
+    if not add:
+        return
+
+    existing_kw = {k.lower() for k in cfg.search.keywords}
+    for kw in add.get("keywords") or []:
+        if kw and kw.lower() not in existing_kw:
+            cfg.search.keywords.append(kw)
+            existing_kw.add(kw.lower())
+
+    existing_co = {c.name.lower() for c in cfg.companies.companies}
+    for co in add.get("companies") or []:
+        try:
+            target = CompanyTarget(**co)
+        except Exception:  # noqa: BLE001 — skip malformed entries, never crash a run
+            continue
+        if target.name.lower() not in existing_co:
+            cfg.companies.companies.append(target)
+            existing_co.add(target.name.lower())
+
+    hf = cfg.search.hard_filters
+    existing_ex = {e.lower() for e in hf.exclude_companies}
+    for ex in add.get("exclude_companies") or []:
+        if ex and ex.lower() not in existing_ex:
+            hf.exclude_companies.append(ex)
+            existing_ex.add(ex.lower())

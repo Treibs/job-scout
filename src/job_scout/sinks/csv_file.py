@@ -39,10 +39,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_PATH = _REPO_ROOT / "output" / "jobs.csv"
 
 # Statuses the *user* sets — never overwritten by the pipeline's default "new".
-_USER_STATUSES = frozenset({"reviewing", "applied", "rejected", "archived"})
+_USER_STATUSES = frozenset(
+    {"reviewing", "interested", "applied", "pass", "rejected", "archived"}
+)
 # Of those, the ones that survive even when the listing vanishes from source
-# (you applied/were rejected/archived it — that history outlives the posting).
-_TERMINAL_STATUSES = frozenset({"applied", "rejected", "archived"})
+# (you applied/passed/etc. — that decision outlives the posting).
+_TERMINAL_STATUSES = frozenset({"interested", "applied", "pass", "rejected", "archived"})
 
 _URL_COL = "apply_url"
 _STATUS_COL = "status"

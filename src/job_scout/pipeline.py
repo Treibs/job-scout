@@ -94,7 +94,39 @@ def run_pipeline(config: Config) -> list[Job]:
     # Sinks: write the tracker, then persist state back to the repo.
     _write_tracker(jobs, config)
     state_sink.save_state(jobs, config)
+
+    # Record this run into the discovery ledger (drives the strategist).
+    try:
+        from . import ledger
+
+        ledger.record(jobs, config, interest_by_company=_interest_by_company(config))
+    except Exception as e:  # noqa: BLE001 — the ledger must never break a run
+        log.error("ledger record failed: %s", e)
+
     return jobs
+
+
+def _interest_by_company(config) -> dict:
+    """Snapshot interested/applied counts per company from the tracker CSV."""
+    import csv as _csv
+
+    from .sinks import csv_file
+
+    path = csv_file.output_path(config)
+    out: dict[str, dict] = {}
+    if not path.exists():
+        return out
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            for row in _csv.DictReader(f):
+                status = (row.get("status") or "").strip()
+                if status not in ("interested", "applied"):
+                    continue
+                entry = out.setdefault(row.get("company", ""), {"interested": 0, "applied": 0})
+                entry[status] = entry.get(status, 0) + 1
+    except OSError:
+        return out
+    return out
 
 
 def _write_tracker(jobs: list[Job], config: Config) -> None:
