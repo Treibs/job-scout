@@ -28,7 +28,14 @@ output/
 *.png
 *.jpg
 *.jpeg
-!docs/dashboard.png   # the one intentional, curated README asset
+# the one intentional, curated README asset (gitignore has no inline comments,
+# so the negation must be on its own line)
+!docs/dashboard.png
+
+# ── scratch dirs for building media (screenshots, audio, slides) ──────────────
+.vidwork/
+.cap_full.png
+.cap_hero.png
 
 # ── runtime dedup state — kept LOCAL for the Kitsune cron deployment (this disk
 #    persists between runs, unlike CI). Holds personal job history; don't commit.
