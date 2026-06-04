@@ -7,6 +7,8 @@ ranked, deduplicated tracker — a local **CSV + a filterable HTML dashboard** (
 Google Sheets) — on a schedule and on demand. Over time it **learns what's
 working and re-tunes its own search**.
 
+![The job-scout dashboard — ranked, heat-mapped, filterable](docs/dashboard.png)
+
 > **It is discovery + scoring + a tracker. It is *not* an auto-applier.**
 > job-scout never logs into a site, fills a form, or submits an application. It
 > finds relevant roles, ranks them by your priorities, and hands you a clean
