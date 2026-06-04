@@ -14,9 +14,11 @@ seniority:                    # used by sources that support it + as a scoring g
 freshness_hours: 72           # only fetch postings newer than this
 results_per_board: 30         # keep low to stay under detection thresholds
 hard_filters:
-  exclude_industries:         # matched against company industry + JD text
+  exclude_industries:         # substring match over title+company+description
     - "healthcare"
     - "biotech"
     - "pharma"
-  exclude_keywords: []        # JD-level kill words
-  include_keywords: []        # optional must-haves
+  exclude_keywords: []        # JD-level kill words (matched over the whole listing)
+  include_keywords: []        # optional must-haves (at least one required if set)
+  exclude_companies: []       # drop by EMPLOYER (company field only) — e.g. Big Tech you won't compete at
+  exclude_title_keywords: []  # drop by ROLE TYPE (title only) — e.g. "account executive", "sales rep"
