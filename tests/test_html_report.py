@@ -61,6 +61,8 @@ def test_render_has_new_untagged_segment(tmp_path):
     assert "const isUntagged = r => (r.status||'new')==='new'" in html  # untagged predicate
     # stage logic routes 'new' through the untagged predicate
     assert "if(state.stage==='new'){ if(!isUntagged(r)) return false; }" in html
+    # 'All' badge counts active roles (excludes stale) to match the All list at rest
+    assert "all:DATA.filter(r=>r.status!=='stale').length" in html
 
 
 def test_render_strips_dangerous_url_schemes(tmp_path):

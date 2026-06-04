@@ -376,7 +376,9 @@ function toast(html, cls, sticky){ const t=$('#toast'); t.className=cls||''; t.i
 // ── filters / list ──
 function uniq(key){ return [...new Set(DATA.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function buildFilters(){
-  const counts = {all:DATA.length, new:DATA.filter(r=>isUntagged(r)).length};
+  // 'All' badge counts active roles (excludes stale) to match what the All list
+  // shows at rest — the All list hides stale unless you search / pick a company.
+  const counts = {all:DATA.filter(r=>r.status!=='stale').length, new:DATA.filter(r=>isUntagged(r)).length};
   PIPE.forEach(s=>counts[s]=DATA.filter(r=>r.status===s).length);
   const segs = [['all','All'],['new','◦ New'],['interested','★ Interested'],['applied','✓ Applied'],['interview','◇ Interview'],['offer','◆ Offer']];
   $('#seg').innerHTML = segs.map(([s,l])=>`<button data-s="${s}" class="${state.stage===s?'on':''}">${l}<span class="n">${counts[s]||0}</span></button>`).join('');
@@ -407,7 +409,11 @@ function filtered(){
 function render(){
   buildFilters();
   const rows = filtered();
-  $('#count').innerHTML = `<b>${rows.length}</b> of ${DATA.length} roles`;
+  // Denominator matches what's countable in this view: the All view hides stale
+  // at rest, so count active roles there (keeps the header total == the All badge).
+  const hidingStale = state.stage==='all' && !state.q && !state.company;
+  const denom = hidingStale ? DATA.filter(r=>r.status!=='stale').length : DATA.length;
+  $('#count').innerHTML = rows.length===denom ? `<b>${rows.length}</b> roles` : `<b>${rows.length}</b> of ${denom} roles`;
   $('#list').innerHTML = rows.length ? rows.map((r,i)=>rowHtml(r,i)).join('')
     : '<div class="empty" style="padding:60px 20px">No roles match.</div>';
   $('#list').querySelectorAll('.row').forEach(el=>el.onclick=()=>selectRow(el.dataset.url));
