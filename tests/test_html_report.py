@@ -19,7 +19,7 @@ def _write_csv(path, rows):
 
 
 def _embedded_data(html: str):
-    m = re.search(r"const DATA = (.*?);\nconst DIMS", html, re.S)
+    m = re.search(r"const DATA = (.*?);\nconst GEN", html, re.S)
     return json.loads(m.group(1))
 
 
@@ -38,7 +38,9 @@ def test_render_writes_selfcontained_html(tmp_path):
     data = _embedded_data(html)
     assert {d["title"] for d in data} == {"Director of AI", "Sales Lead"}
     assert "<title>Job Scout" in html
-    assert 'id="minscore"' in html  # the filter UI is present
+    assert 'id="cmd"' in html        # the add command bar
+    assert 'id="detail"' in html     # the two-pane detail panel
+    assert 'class="app"' in html
 
 
 def test_render_missing_csv_returns_none(tmp_path):
