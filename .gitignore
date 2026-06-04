@@ -28,6 +28,7 @@ output/
 *.png
 *.jpg
 *.jpeg
+!docs/dashboard.png   # the one intentional, curated README asset
 
 # ── runtime dedup state — kept LOCAL for the Kitsune cron deployment (this disk
 #    persists between runs, unlike CI). Holds personal job history; don't commit.
