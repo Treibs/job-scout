@@ -1,7 +1,14 @@
 # Copy to config/sources.yaml (git-ignored). Toggle sources + per-source params.
 boards:                       # via JobSpy
   enabled: true
-  sites: ["indeed", "google"]   # linkedin optional/risky; off by default
-  proxies: []                 # optional; "user:pass@host:port"
+  # Indeed = widest net (returns JD text for free). LinkedIn = high-signal.
+  # Google is intentionally not used — JobSpy's Google Jobs parser returns 0.
+  sites: ["indeed", "linkedin"]
+  proxies: []                 # optional; "user:pass@host:port" — useful if LinkedIn blocks
+  # LinkedIn JD enrichment: fetch full descriptions for the top-N most
+  # resume-relevant LinkedIn roles (cached, paced) — improves scoring, safe at
+  # this volume without proxies.
+  linkedin_fetch_description: true
+  linkedin_enrich_max: 30
 ats:
   enabled: true               # uses config/companies.yaml

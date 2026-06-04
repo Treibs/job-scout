@@ -1,57 +1,101 @@
 # job-scout
 
-An open-source, config-driven job **discovery and scoring** engine. It scrapes
+A config-driven job **discovery, scoring, and self-tuning** engine. It scrapes
 public job listings from multiple sources, cross-references them against *your*
-resume, scores fit against *your* weighted criteria, and writes a ranked,
-deduplicated tracker to Google Sheets — on a daily schedule and on demand.
+resume, scores fit against *your* weighted criteria with an LLM, and writes a
+ranked, deduplicated tracker — a local **CSV + a filterable HTML dashboard** (or
+Google Sheets) — on a schedule and on demand. Over time it **learns what's
+working and re-tunes its own search**.
 
-> **It is a discovery + scoring + tracker. It is *not* an auto-applier.**
+> **It is discovery + scoring + a tracker. It is *not* an auto-applier.**
 > job-scout never logs into a site, fills a form, or submits an application. It
 > finds relevant roles, ranks them by your priorities, and hands you a clean
-> tracker. A human makes the final apply decision, every time. This is a
-> deliberate design choice — see [Ethics & ToS](#ethics--tos) below.
+> tracker. A human makes every apply decision. See [Ethics & ToS](#ethics--tos).
 
 There is **no personal data in this repo.** Everything user-specific lives in
-git-ignored config and resume files; the repo ships only `*.example` templates.
+git-ignored config, resume, and output files; the repo ships only `*.example`
+templates.
 
 ---
 
 ## How it works
 
-One pipeline, two triggers. The daily cron and the on-demand run both call the
-same `run_pipeline(config)` — no duplicated logic.
+One pipeline. The scheduled cron and on-demand runs both call the same
+`run_pipeline(config)` — no duplicated logic.
 
 ```
-                    ┌──────────────────────────────────────────────┐
-   TRIGGERS         │                 run_pipeline(config)          │
- ┌───────────┐      │                                               │
- │ cron      │─────►│  sources ─► normalize ─► dedupe ─► score ─► sink
- │ (daily)   │      │   │                                      │      │
- ├───────────┤      │   ├─ jobspy (boards)        ┌────────────┘      │
- │ dispatch  │─────►│   └─ ats/* (greenhouse,     │ embedding pre-filter│
- │ (on-demand)│     │       lever, ashby,         │ + LLM rubric scoring│
- └───────────┘      │       smartrecruiters,      └─────────────────────┘
-                    │       workday)                       │
-                    │                                      ▼
-                    │   state/ (seen hashes, snapshot)   Google Sheets
-                    └──────────────────────────────────────────────┘
+ sources ─► normalize ─► dedupe ─► enrich ─► score ─► sinks ─► ledger
+   │                                  │         │        │
+   ├─ jobspy boards (Indeed,          │         │        ├─ CSV  (output/jobs.csv)
+   │   LinkedIn)                       │         │        ├─ HTML (output/jobs.html)
+   └─ ats/* (Greenhouse, Lever,        │         │        └─ (or Google Sheets)
+       Ashby, SmartRecruiters,          │         │
+       Workday)                          │         └─ hard filters → LLM rubric scoring
+                                          └─ LinkedIn JD enrichment (top-N, cached)
 ```
 
 **Pipeline stages:**
 
 1. **sources** — each source returns raw job dicts. [JobSpy](https://github.com/cullenwatson/JobSpy)
-   pulls public boards (Indeed, Google, optionally LinkedIn); one module per ATS
-   pulls official public JSON (Greenhouse, Lever, Ashby, SmartRecruiters,
-   Workday). Each source is wrapped so one dead source can't kill the run.
+   pulls public boards (Indeed + LinkedIn); one module per ATS pulls official
+   public JSON (Greenhouse, Lever, Ashby, SmartRecruiters, Workday). Each source
+   is wrapped so one dead source can't kill the run. *(Google Jobs is intentionally
+   omitted — JobSpy's parser reliably returns nothing.)*
 2. **normalize** — every source is mapped into one `Job` schema.
 3. **dedupe** — composite-key exact match (`title + company + location`,
-   normalized) plus a fuzzy `rapidfuzz` second pass, across sources *and* across
-   runs. Prefers the direct ATS/apply URL over the aggregator link.
-4. **score** — cheap deterministic hard filters, then an optional embedding
-   pre-filter (`sentence-transformers`), then LLM rubric scoring on the
-   survivors. Ranked by overall score.
-5. **sinks** — upserts the ranked tracker into Google Sheets and writes
-   `state/` (seen hashes + snapshot), which the cron commits back to the repo.
+   normalized) plus a fuzzy `rapidfuzz` pass, across sources *and* across runs.
+   Prefers the direct ATS/apply URL over the aggregator link.
+4. **enrich** — LinkedIn only returns a description via a per-job request, so we
+   fetch full JDs for just the top-N most resume-relevant LinkedIn roles (ranked
+   by a local embedding), via the public guest endpoint, **cached forever** and
+   paced — rich scoring without proxies or rate-limit bans.
+5. **score** — cheap deterministic hard filters (remote policy, excluded
+   industries/keywords, **excluded companies**, **excluded title keywords**,
+   seniority gate), an optional embedding pre-filter, then concurrent LLM rubric
+   scoring on the survivors. Ranked by overall score.
+6. **sinks** — upserts the ranked tracker into the CSV (and regenerates the HTML
+   dashboard), or Google Sheets. Upsert is by apply-URL, so re-runs never
+   duplicate rows; vanished listings are marked `stale`; your manual statuses are
+   preserved. Also writes `state/` (seen hashes + snapshot).
+7. **ledger** — records per-keyword and per-company yield (roles found,
+   high-scorers, avg/max score, your interest hits) to `state/discovery.json` —
+   the memory the [strategist](#adaptive-discovery) learns from.
+
+### The dashboard
+
+Every run regenerates `output/jobs.html` — a single self-contained file (data
+embedded inline, no server needed). Open it in a browser to filter by search,
+company, source, status, and min-score; sort; and expand any card for the LLM's
+rationale and red flags.
+
+To **persist interest decisions**, run the tiny localhost helper and use its URL:
+
+```bash
+python scripts/serve.py            # http://127.0.0.1:8765/
+```
+
+Then the ★ Interested / ✓ Applied / ✕ Pass buttons write straight back to the
+CSV (and survive the next run). Opened as a bare `file://`, the buttons fall back
+to `localStorage`. Regenerate the dashboard any time with `python scripts/report.py`.
+
+### Adaptive discovery
+
+The search isn't static. A **strategist** (run on its own cadence) reads the
+ledger, your recent high-scoring roles, your interest signals, and your resume,
+then proposes new keywords and companies — under a hard guardrail: **every
+addition needs a resume-tied reason and a relevance score ≥ 0.7**; adjacent bends
+are allowed only with strong justification.
+
+```bash
+python scripts/strategist.py --dry-run   # propose only, change nothing
+python scripts/strategist.py             # propose + auto-apply keyword changes
+```
+
+Its additions go in a separate, machine-managed `config/discovery_additions.yaml`
+that `load_config` merges at load time — **your hand-curated config is never
+rewritten**, and you can reset the loop's additions by deleting that one file.
+(Company additions need an ATS lookup, so they're applied by the scheduled
+strategist job, which resolves slugs before adding.)
 
 ### Configuration model
 
@@ -60,162 +104,128 @@ files; copy them to the real (git-ignored) names and edit.
 
 | File | Purpose |
 |------|---------|
-| [`config/search.yaml`](config/search.example.yaml) | What/where to search: `keywords`, `location` (`query`, `distance_miles`, `remote_policy`), `seniority`, `freshness_hours`, `results_per_board`, and `hard_filters` (excluded industries/keywords, include keywords). |
-| [`config/companies.yaml`](config/companies.example.yaml) | Target employers for the direct-ATS pulls: `name`, `ats`, and the slug/tenant fields. See [docs/finding-ats-slugs.md](docs/finding-ats-slugs.md). |
-| [`config/scoring.yaml`](config/scoring.example.yaml) | Your rubric `dimensions` (each with `id`, `weight`, `prompt`), `scale`, `role_fit_gate`, the scoring `model`, and the embedding `pre_filter`. No opinionated defaults are baked into code. |
-| [`config/sources.yaml`](config/sources.example.yaml) | Which sources are on/off: `boards` (JobSpy `sites`, optional `proxies`) and `ats` (uses `companies.yaml`). |
+| [`config/search.yaml`](config/search.example.yaml) | What/where to search: `keywords`, `location`, `seniority`, `freshness_hours`, `results_per_board`, and `hard_filters` — excluded industries/keywords, include keywords, **`exclude_companies`** (drop by employer), **`exclude_title_keywords`** (drop by role type, e.g. sales). |
+| [`config/companies.yaml`](config/companies.example.yaml) | Target employers for direct-ATS pulls: `name`, `ats`, slug/tenant fields. See [docs/finding-ats-slugs.md](docs/finding-ats-slugs.md). |
+| [`config/scoring.yaml`](config/scoring.example.yaml) | Rubric `dimensions` (`id`, `weight`, `prompt`), `scale`, `role_fit_gate`, the scoring `model`, the embedding `pre_filter`. |
+| [`config/sources.yaml`](config/sources.example.yaml) | Sources on/off: `boards` (JobSpy `sites`, `proxies`, `linkedin_fetch_description`, `linkedin_enrich_max`) and `ats`. |
+| `config/discovery_additions.yaml` | **Machine-managed** by the strategist (keywords/companies/excludes it added). Not committed; safe to delete to reset. |
 | [`resume/resume.md`](resume/resume.example.md) | Plain-markdown resume the scorer compares each listing against. Git-ignored. |
 
 ---
 
 ## Quickstart
 
-A stranger should be able to clone this, add a resume + a service account, and
-get a working daily tracker by following the checklist below. (Mirrors
-PROJECT.md §13.)
+The default CSV + dashboard sink needs **no cloud account** — just a resume and an
+LLM key.
 
-- [ ] **Clone and install**
+```bash
+git clone https://github.com/OWNER/REPO.git job-scout
+cd job-scout
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+```
 
-  ```bash
-  git clone https://github.com/OWNER/REPO.git job-scout
-  cd job-scout
-  pip install -r requirements.txt
-  ```
+1. **Copy the templates** (the real names are git-ignored):
 
-- [ ] **Copy each config template** `config/*.example.yaml` → `config/*.yaml`
-      and edit. (The real `*.yaml` names are git-ignored.)
+   ```bash
+   for f in search companies scoring sources; do cp config/$f.example.yaml config/$f.yaml; done
+   cp resume/resume.example.md resume/resume.md   # then paste your real resume
+   ```
 
-  ```bash
-  cp config/search.example.yaml    config/search.yaml
-  cp config/companies.example.yaml config/companies.yaml
-  cp config/scoring.example.yaml   config/scoring.yaml
-  cp config/sources.example.yaml   config/sources.yaml
-  ```
+2. **Edit** `config/search.yaml` (keywords, location, filters) and
+   `config/companies.yaml` (target employers — see
+   [docs/finding-ats-slugs.md](docs/finding-ats-slugs.md)).
 
-- [ ] **Copy your resume** `resume/resume.example.md` → `resume/resume.md` and
-      paste in your real resume.
+3. **Add secrets** — copy `.env.example` → `.env` and set:
 
-  ```bash
-  cp resume/resume.example.md resume/resume.md
-  ```
+   | Var | Required | What it is |
+   |-----|----------|------------|
+   | `ANTHROPIC_API_KEY` | for scoring | LLM rubric scoring. Works with any Anthropic-compatible endpoint. |
+   | `ANTHROPIC_BASE_URL` | optional | Point scoring at a compatible endpoint (e.g. an OpenAI-of-record / MiniMax Anthropic API) — the SDK honors it. |
+   | `JOB_SCOUT_SINK` | optional | `csv` (default) or `google_sheets`. |
+   | `JOBS_CSV_PATH` | optional | CSV output path (default `output/jobs.csv`). |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON`, `SHEET_ID` | Sheets only | If using the Google Sheets sink — see [docs/sheets-setup.md](docs/sheets-setup.md). |
+   | `PROXY_URLS` | optional | Comma-separated proxies for board scraping. |
 
-- [ ] **Fill `config/companies.yaml`** with your target employers + ATS slugs.
-      Don't know a company's ATS or slug? See
-      [docs/finding-ats-slugs.md](docs/finding-ats-slugs.md).
+   *(Scoring degrades gracefully: with no key it still gathers, dedupes, and
+   tracks — just unscored.)*
 
-- [ ] **Set up Google Sheets + the service account.** Create a GCP project,
-      enable the Sheets API, create a service account, share your tracker Sheet
-      with its email as Editor. Full walkthrough:
-      [docs/sheets-setup.md](docs/sheets-setup.md).
+4. **Run it:**
 
-- [ ] **Add secrets.** For local dev, copy `.env.example` → `.env` and fill it.
-      For GitHub Actions, add these repository secrets
-      (**Settings → Secrets and variables → Actions**):
+   ```bash
+   python scripts/run.py --config config/search.yaml
+   ```
 
-  | Secret | Required | What it is |
-  |--------|----------|------------|
-  | `ANTHROPIC_API_KEY` | yes | For LLM rubric scoring. |
-  | `GOOGLE_SERVICE_ACCOUNT_JSON` | yes | Full JSON key blob (path is allowed in local dev only). |
-  | `SHEET_ID` | yes | The tracker Sheet's ID. |
-  | `PROXY_URLS` | optional | Comma-separated `user:pass@host:port` proxies for board scraping. |
+   Open `output/jobs.html` — a ranked, deduped, filterable dashboard. (Or your
+   Google Sheet if you chose that sink — run `python scripts/setup_sheet.py` once first.)
 
-- [ ] **Initialize the sheet** (one time):
-
-  ```bash
-  python scripts/setup_sheet.py
-  ```
-
-- [ ] **Run the pipeline** to verify:
-
-  ```bash
-  python scripts/run.py --config config/search.yaml
-  ```
-
-  Open your tracker Sheet — you should see a deduped, ranked list of roles.
-
-- [ ] **Enable the `daily-job-scout` workflow.** Go to the **Actions** tab and
-      enable workflows. From then on it runs automatically once a day (and you
-      can trigger it any time — see below).
+5. **Schedule it** (see below) and, optionally, **start the interest server**
+   (`python scripts/serve.py`).
 
 ---
 
-## The daily cron
+## Scheduling
 
-`.github/workflows/daily.yml` runs the pipeline on a schedule:
+The default CSV sink runs anywhere — any scheduler works (cron, systemd timer,
+or the included GitHub Actions workflows). Two jobs:
 
-```yaml
-on:
-  schedule:
-    - cron: "0 11 * * *"   # 11:00 UTC daily (~6am US Central). Adjust to taste.
-  workflow_dispatch: {}    # allows manual runs too
-```
+- **Discovery** (e.g. daily): `python scripts/run.py --config config/search.yaml`
+- **Strategist** (e.g. every few days): `python scripts/strategist.py --config config/search.yaml`
 
-It checks out the repo, installs deps, runs
-`python scripts/run.py --config config/search.yaml` with the four secrets in the
-environment, then commits the updated `state/` back to the repo so the next run
-only surfaces genuinely new roles.
+`.github/workflows/daily.yml` runs discovery on a schedule and on
+`workflow_dispatch`; `on_demand.yml` is a dispatch-only twin for a separate run
+history. (Those commit `state/` back to the repo for cross-run memory in CI; for
+a local schedule the on-disk `state/` persists on its own and need not be
+committed.)
 
-### On-demand runs
+### Caveats
 
-You can fire a fresh run at any time, three ways:
+- **Scheduled runs can be delayed** under load — don't treat the time as exact.
+- **Keep volume low, cadence daily** — small result counts, fresh-only windows.
+  Respectful scraping is ban-resistant scraping.
 
-1. **GitHub UI** — Actions tab → pick a workflow → **Run workflow**.
-2. **gh CLI** — `gh workflow run daily.yml` (or `on_demand.yml`).
-3. **REST API** — `POST /repos/{owner}/{repo}/actions/workflows/daily.yml/dispatches`
-   (or `.../on_demand.yml/dispatches`). This lets an agent or a Google Sheets
-   Apps Script button kick off a scan.
+---
 
-`.github/workflows/on_demand.yml` is a `workflow_dispatch`-only twin of the
-daily job, giving manual/API runs their own name in the Actions history. You
-don't strictly need it — `daily.yml` already declares `workflow_dispatch` — but
-it keeps the two run histories separate.
+## Scripts
 
-### Cron caveats
+| Script | What it does |
+|--------|--------------|
+| `scripts/run.py` | The pipeline (gather → score → write tracker + dashboard + ledger). |
+| `scripts/report.py` | Regenerate `output/jobs.html` from the CSV on demand. |
+| `scripts/serve.py` | Localhost server so the dashboard's interest buttons persist to the CSV. |
+| `scripts/strategist.py` | Digest the ledger + resume → propose & apply guarded search changes. |
+| `scripts/setup_sheet.py` | One-time Google Sheet header init (Sheets sink only). |
 
-- **Scheduled runs can be delayed** when GitHub Actions is under load. Don't
-  treat the time as exact.
-- **GitHub disables scheduled workflows after ~60 days of repo inactivity.** The
-  nightly `state/` commit counts as activity and keeps the schedule alive — so
-  as long as the cron is running, it self-sustains.
-- **Action-minute limits.** Private repos get ~2,000 free Action-minutes/month;
-  public repos are unlimited. Keep `results_per_board` low and the cadence daily
-  (not hourly) to stay well within budget — and to scrape respectfully.
+Run tests with `pytest`.
 
 ---
 
 ## Ethics & ToS
 
-job-scout is built to be ToS-defensible, ban-resistant, and respectful. Please
-keep it that way.
+job-scout is built to be ToS-defensible, ban-resistant, and respectful.
 
 - **Public-data only.** It reads publicly visible listings and public ATS JSON
   endpoints. It does **not** log in, solve CAPTCHAs, or bypass authentication.
-- **No auto-apply.** The tool stops at discovery + scoring. It never submits an
-  application. A human makes every apply decision.
-- **Respect ToS and robots.** Some job boards prohibit scraping in their terms;
-  using the board scrapers is **at your own risk**. Direct ATS JSON endpoints
-  are the recommended, lowest-risk path — prefer them.
-- **Keep volume low, cadence daily.** Small result counts, fresh-only windows,
-  exponential backoff. Never automate a logged-in session.
-- **Protect your accounts.** Never point this at a logged-in LinkedIn session;
-  account bans are real and escalating. LinkedIn is off by default in
-  `config/sources.yaml` for this reason.
-- **No warranty.** Scrapers break, endpoints change, and LLM scores are
-  imperfect. Treat the tracker as a ranked shortlist, not a verdict — verify
-  before you act.
+- **No auto-apply.** It stops at discovery + scoring. A human applies, every time.
+- **Respect ToS and robots.** Some boards prohibit scraping in their terms; using
+  the board scrapers is **at your own risk**. Direct ATS JSON endpoints are the
+  recommended, lowest-risk path — prefer them.
+- **LinkedIn, carefully.** The LinkedIn source and JD enrichment read only
+  public, unauthenticated endpoints, fetch descriptions for a small top-N, cache
+  them, and pace requests — to stay low-volume and respectful. Never point this at
+  a logged-in session; account bans are real. Scraping is against LinkedIn's ToS —
+  use at your own risk and keep volume low.
+- **No warranty.** Scrapers break, endpoints change, LLM scores are imperfect.
+  Treat the tracker as a ranked shortlist, not a verdict — verify before you act.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Dependencies carry their own licenses, notably
+[JobSpy](https://github.com/cullenwatson/JobSpy) (MIT) and
+[sentence-transformers](https://github.com/UKPLab/sentence-transformers) (Apache-2.0).
 
-Dependencies carry their own licenses, which you must comply with. Notably:
-
-- [JobSpy](https://github.com/cullenwatson/JobSpy) — MIT
-- [sentence-transformers](https://github.com/UKPLab/sentence-transformers) — Apache-2.0
-
----
-
-See [PROJECT.md](PROJECT.md) for the full architecture spec, data schema,
-dedupe/scoring details, and the phased build plan.
+See [PROJECT.md](PROJECT.md) for the architecture spec and
+[docs/adaptive-discovery-plan.md](docs/adaptive-discovery-plan.md) for the
+feedback-loop design.
