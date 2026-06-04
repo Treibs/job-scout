@@ -1,10 +1,13 @@
-"""Self-contained HTML report — a filterable dashboard built from the CSV tracker.
+"""Self-contained HTML dashboard built from the CSV tracker.
 
-`render(csv_path)` reads the upserted CSV (so it includes carried-over / stale
-rows, not just this run's jobs) and writes a single ``jobs.html`` next to it with
-the data embedded inline. No server, no build step, no external data files — open
-it in any browser (double-click). Fonts load from Google Fonts when online and
-degrade to system fonts offline; everything else works offline.
+`render(csv_path)` reads the upserted CSV and writes a single ``jobs.html`` with
+the data embedded inline. Two-pane CRM: a filterable role list on the left, a full
+detail + pipeline + notes panel on the right, and a command bar to scrape a job
+link or watch a company.
+
+Progressive enhancement: opened as a file:// it's a read-only viewer (status/notes
+fall back to localStorage); served by ``scripts/serve.py`` it's a live app that
+persists to the CSV and can scrape/score new roles.
 
 Stdlib only (csv, json, html, datetime, pathlib).
 """
@@ -45,11 +48,8 @@ def render(csv_path, html_path=None, generated_at: str | None = None) -> Path | 
             for r in csv.DictReader(f)
         ]
 
-    # Sanitize the only field rendered into an href. Job URLs come from external
-    # sources, and HTML-escaping an attribute does NOT neutralize a `javascript:`
-    # scheme — so drop anything that isn't a plain http(s) link (the UI then
-    # renders a non-clickable title for it). Defends the local dashboard from a
-    # malicious posting URL (XSS).
+    # Sanitize the only field rendered into an href (job URLs are external);
+    # HTML-escaping an attribute doesn't neutralize a javascript: scheme.
     for r in rows:
         r["apply_url"] = _safe_http_url(r["apply_url"])
 
@@ -80,360 +80,347 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0d0e11; --bg2:#14161b; --bg3:#1b1e25; --line:#262a33;
-    --ink:#e9e6df; --ink-dim:#9aa0ab; --ink-faint:#646a76;
+    --bg:#0b0c0f; --bg2:#121419; --bg3:#191c23; --bg4:#21252e; --line:#262a33; --line2:#323845;
+    --ink:#ece9e2; --ink-dim:#9aa0ab; --ink-faint:#646a76;
     --amber:#f5b14c; --amber-dim:#7a5b27; --teal:#54d6c4; --teal-dim:#1f4f4a;
-    --mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
-    --sans:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+    --green:#7eeaa8; --green-dim:#2f6b4d; --rose:#e8736b; --rose-dim:#6b3330;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace; --sans:'IBM Plex Sans',system-ui,sans-serif;
   }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  body{
-    margin:0;background:
-      radial-gradient(900px 500px at 88% -8%,rgba(245,177,76,.07),transparent 60%),
-      radial-gradient(700px 500px at 0% 0%,rgba(84,214,196,.05),transparent 55%),
-      var(--bg);
-    color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
-    -webkit-font-smoothing:antialiased;
-  }
-  a{color:var(--teal);text-decoration:none}
-  a:hover{text-decoration:underline}
+  *{box-sizing:border-box;margin:0}
+  body{height:100vh;overflow:hidden;background:
+      radial-gradient(900px 500px at 92% -10%,rgba(245,177,76,.06),transparent 60%),
+      radial-gradient(700px 500px at -4% 110%,rgba(84,214,196,.05),transparent 55%),var(--bg);
+    color:var(--ink);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column}
+  a{color:var(--teal);text-decoration:none} a:hover{text-decoration:underline}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:6px;border:2px solid var(--bg)}
 
-  /* ── masthead ───────────────────────────────────────── */
-  header{
-    padding:30px 30px 18px;border-bottom:1px solid var(--line);
-    background:linear-gradient(180deg,rgba(20,22,27,.6),transparent);
-  }
-  .brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
-  .brand h1{
-    margin:0;font-family:var(--mono);font-weight:700;font-size:26px;letter-spacing:-.5px;
-  }
-  .brand h1 .dot{color:var(--amber)}
-  .brand .sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);
-    text-transform:uppercase;letter-spacing:3px}
-  .gen{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+  /* ── top bar ── */
+  header{display:flex;align-items:center;gap:20px;padding:13px 22px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(18,20,25,.7),transparent)}
+  .brand{font-family:var(--mono);font-weight:700;font-size:19px;letter-spacing:-.5px;white-space:nowrap}
+  .brand .d{color:var(--amber)}
+  .cmd{flex:1;display:flex;gap:8px;align-items:center;max-width:760px}
+  .cmd .in{flex:1;position:relative;display:flex;align-items:center}
+  .cmd .in .pre{position:absolute;left:13px;color:var(--ink-faint);font-family:var(--mono);font-size:13px}
+  .cmd input{width:100%;background:var(--bg2);border:1px solid var(--line2);color:var(--ink);
+    border-radius:9px;padding:10px 13px 10px 30px;font-family:var(--sans);font-size:13.5px;outline:none;transition:border-color .15s}
+  .cmd input:focus{border-color:var(--amber-dim)}
+  .cmd input::placeholder{color:var(--ink-faint)}
+  .cmd button{font-family:var(--mono);font-size:12px;letter-spacing:.3px;border-radius:9px;padding:10px 14px;
+    border:1px solid var(--line2);background:var(--bg3);color:var(--ink-dim);cursor:pointer;white-space:nowrap;transition:.15s}
+  .cmd button:hover:not(:disabled){border-color:var(--amber-dim);color:var(--ink)}
+  .cmd button.j:hover:not(:disabled){border-color:var(--teal-dim);color:var(--teal)}
+  .cmd button:disabled{opacity:.4;cursor:not-allowed}
+  .conn{margin-left:auto;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;
+    display:flex;align-items:center;gap:7px;color:var(--ink-faint);white-space:nowrap}
+  .conn .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-faint)}
+  .conn.live .dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .conn.live{color:var(--green)}
 
-  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
-  .stat{
-    background:var(--bg2);border:1px solid var(--line);border-radius:10px;
-    padding:10px 16px;min-width:96px;
-  }
-  .stat .n{font-family:var(--mono);font-size:22px;font-weight:600;line-height:1}
-  .stat .l{font-size:10px;color:var(--ink-faint);text-transform:uppercase;
-    letter-spacing:1.5px;margin-top:6px}
-  .stat.accent .n{color:var(--amber)}
+  /* ── app two-pane ── */
+  .app{flex:1;display:grid;grid-template-columns:minmax(430px,40%) 1fr;min-height:0}
+  .pane{min-height:0;display:flex;flex-direction:column}
+  .left{border-right:1px solid var(--line)}
 
-  /* ── controls ───────────────────────────────────────── */
-  .controls{
-    position:sticky;top:0;z-index:20;
-    background:rgba(13,14,17,.86);backdrop-filter:blur(12px);
-    border-bottom:1px solid var(--line);padding:14px 30px;
-    display:flex;gap:12px;align-items:center;flex-wrap:wrap;
-  }
-  .field{display:flex;flex-direction:column;gap:4px}
-  .field label{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;
-    color:var(--ink-faint);font-family:var(--mono)}
-  input[type=search],select{
-    background:var(--bg2);border:1px solid var(--line);color:var(--ink);
-    border-radius:8px;padding:8px 11px;font-family:var(--sans);font-size:13px;
-    outline:none;transition:border-color .15s;
-  }
-  input[type=search]{min-width:240px}
-  input[type=search]:focus,select:focus{border-color:var(--amber-dim)}
-  input[type=search]::placeholder{color:var(--ink-faint)}
-  select{cursor:pointer;appearance:none;padding-right:28px;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 3l4 4 4-4' stroke='%23646a76' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
-    background-repeat:no-repeat;background-position:right 10px center}
-  .range{display:flex;flex-direction:column;gap:4px}
-  .range .row{display:flex;align-items:center;gap:8px}
-  input[type=range]{width:120px;accent-color:var(--amber)}
-  .range .val{font-family:var(--mono);font-size:13px;color:var(--amber);min-width:24px}
-  .check{display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none;
-    font-size:12px;color:var(--ink-dim);margin-top:14px}
-  .check input{accent-color:var(--teal);width:15px;height:15px}
-  .count{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-dim);
-    margin-top:14px}
-  .count b{color:var(--ink)}
+  /* filter bar */
+  .filters{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:11px;
+    background:rgba(11,12,15,.7);backdrop-filter:blur(8px)}
+  .seg{display:flex;gap:4px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:4px}
+  .seg button{flex:1;font-family:var(--mono);font-size:11.5px;letter-spacing:.3px;border:0;background:transparent;
+    color:var(--ink-faint);padding:7px 6px;border-radius:7px;cursor:pointer;transition:.12s;white-space:nowrap}
+  .seg button:hover{color:var(--ink-dim)}
+  .seg button.on{background:var(--bg4);color:var(--ink)}
+  .seg button.on[data-s="interested"]{color:var(--teal)} .seg button.on[data-s="applied"]{color:var(--green)}
+  .seg button .n{opacity:.55;margin-left:5px}
+  .frow{display:flex;gap:8px;align-items:center}
+  .frow input[type=search],.frow select{background:var(--bg2);border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:7px 10px;font-family:var(--sans);font-size:12.5px;outline:none}
+  .frow input[type=search]{flex:1;min-width:0}
+  .frow select{cursor:pointer;font-family:var(--mono);font-size:11px;max-width:130px}
+  .frow input:focus,.frow select:focus{border-color:var(--amber-dim)}
+  .lcount{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding:8px 18px;border-bottom:1px solid var(--line)}
+  .lcount b{color:var(--ink-dim)}
 
-  /* ── list ───────────────────────────────────────────── */
-  main{padding:22px 30px 80px;max-width:1180px}
-  .card{
-    display:grid;grid-template-columns:64px 1fr;gap:18px;
-    background:var(--bg2);border:1px solid var(--line);border-radius:12px;
-    padding:16px 18px;margin-bottom:11px;cursor:pointer;
-    transition:transform .14s ease,border-color .14s ease,background .14s;
-    animation:rise .4s both;
-  }
-  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-  .card:hover{transform:translateY(-2px);border-color:#34394400;
-    border-color:var(--amber-dim);background:var(--bg3)}
-  .card.stale{opacity:.62}
+  /* list */
+  .list{flex:1;overflow-y:auto;padding:8px}
+  .row{display:grid;grid-template-columns:46px 1fr auto;gap:13px;align-items:center;padding:12px 12px;
+    border-radius:11px;cursor:pointer;border:1px solid transparent;transition:.12s;animation:rise .35s both}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .row:hover{background:var(--bg2)}
+  .row.sel{background:var(--bg3);border-color:var(--line2)}
+  .row.stale{opacity:.5}
+  .sc{width:46px;height:46px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border:1px solid;font-family:var(--mono)}
+  .sc .v{font-size:17px;font-weight:700;line-height:1} .sc .k{font-size:7px;letter-spacing:1px;opacity:.6;margin-top:1px}
+  .rtitle{font-size:14px;font-weight:600;color:var(--ink);line-height:1.25;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rmeta{font-size:12px;color:var(--ink-dim);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rmeta .src{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint)}
+  .pdot{width:9px;height:9px;border-radius:50%;background:var(--line2)}
+  .pdot.interested{background:var(--teal)} .pdot.applied{background:var(--green)}
+  .pdot.interview{background:var(--amber)} .pdot.offer{background:#c2e36a;box-shadow:0 0 7px rgba(194,227,106,.6)}
+  .pdot.pass,.pdot.rejected,.pdot.archived{background:var(--rose-dim)} .pdot.stale{background:var(--bg4)}
 
-  .score{
-    width:64px;height:64px;border-radius:11px;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;border:1px solid;
-    font-family:var(--mono);
-  }
-  .score .v{font-size:23px;font-weight:700;line-height:1}
-  .score .k{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;margin-top:3px;opacity:.7}
+  /* detail */
+  .detail{flex:1;overflow-y:auto;padding:30px 38px 60px}
+  .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--ink-faint);font-family:var(--mono);gap:10px;text-align:center}
+  .empty .big{font-size:40px;opacity:.3}
+  .dhead{display:flex;gap:22px;align-items:flex-start}
+  .dsc{width:84px;height:84px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border:1px solid;font-family:var(--mono);flex-shrink:0}
+  .dsc .v{font-size:32px;font-weight:700;line-height:1} .dsc .k{font-size:9px;letter-spacing:1.5px;opacity:.6;margin-top:3px}
+  .dtitle{font-size:25px;font-weight:600;letter-spacing:-.3px;line-height:1.15}
+  .dmeta{margin-top:9px;color:var(--ink-dim);font-size:13.5px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .dmeta .src{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-faint);
+    border:1px solid var(--line);padding:1px 7px;border-radius:5px}
+  .dmeta .co{color:var(--ink);font-weight:600}
+  .open{margin-top:14px;display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:13px;
+    border:1px solid var(--teal-dim);color:var(--teal);background:rgba(84,214,196,.07);border-radius:9px;padding:9px 16px}
+  .open:hover{background:rgba(84,214,196,.14);text-decoration:none}
 
-  .body{min-width:0}
-  .titlerow{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-  .title{font-size:16px;font-weight:600;color:var(--ink);letter-spacing:-.2px}
-  .title:hover{color:var(--teal)}
-  .pill{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;
-    letter-spacing:1px;padding:2px 8px;border-radius:20px;border:1px solid var(--line)}
-  .pill.new{color:var(--teal);border-color:var(--teal-dim);background:rgba(84,214,196,.07)}
-  .pill.stale{color:var(--ink-faint)}
-  .pill.applied{color:#7ec97e;border-color:#2c512c}
-  .pill.reviewing{color:var(--amber);border-color:var(--amber-dim)}
-  .pill.rejected,.pill.archived{color:var(--ink-faint)}
-  .pill.interested{color:var(--teal);border-color:var(--teal-dim);background:rgba(84,214,196,.07)}
-  .pill.pass{color:var(--ink-faint)}
+  .sect{margin-top:28px}
+  .slabel{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:12px}
 
-  /* ── interest-capture buttons ───────────────────────── */
-  .acts{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
-  .act{
-    font-family:var(--mono);font-size:11px;letter-spacing:.3px;
-    background:var(--bg3);border:1px solid var(--line);color:var(--ink-dim);
-    border-radius:7px;padding:4px 10px;cursor:pointer;user-select:none;
-    transition:border-color .14s,color .14s,background .14s,transform .1s;
-  }
-  .act:hover{color:var(--ink);border-color:var(--ink-faint)}
-  .act.interested:hover{color:var(--teal);border-color:var(--teal-dim);
-    background:rgba(84,214,196,.08)}
-  .act.applied:hover{color:#7ec97e;border-color:#2c512c;background:rgba(110,231,168,.08)}
-  .act.pass:hover{color:var(--ink-faint);border-color:var(--line)}
-  .act.flash{transform:scale(1.06);background:var(--amber-dim);
-    border-color:var(--amber);color:var(--ink)}
+  /* pipeline control */
+  .pipe{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .stage{font-family:var(--mono);font-size:12.5px;border:1px solid var(--line2);background:var(--bg2);color:var(--ink-dim);
+    border-radius:9px;padding:9px 15px;cursor:pointer;transition:.14s;position:relative}
+  .stage:hover{border-color:var(--ink-faint);color:var(--ink)}
+  .stage.on{color:#0b0c0f;font-weight:600;border-color:transparent}
+  .stage.on[data-s="interested"]{background:var(--teal)} .stage.on[data-s="applied"]{background:var(--green)}
+  .stage.on[data-s="interview"]{background:var(--amber)} .stage.on[data-s="offer"]{background:#c2e36a}
+  .stage.exit{margin-left:auto} .stage.exit.on{background:var(--rose)}
+  .appdate{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin-top:9px}
 
-  .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;
-    color:var(--ink-dim);font-size:12.5px}
-  .meta .co{color:var(--ink);font-weight:500}
-  .meta .sep{color:var(--ink-faint)}
-  .meta .src{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
-    letter-spacing:.5px;color:var(--ink-faint);border:1px solid var(--line);
-    padding:1px 7px;border-radius:5px}
-
-  .dims{display:flex;gap:14px;margin-top:11px;flex-wrap:wrap}
-  .dim{display:flex;align-items:center;gap:6px}
-  .dim .dl{font-family:var(--mono);font-size:9px;color:var(--ink-faint);
-    text-transform:uppercase;letter-spacing:.5px;width:34px}
-  .dim .bar{width:54px;height:5px;border-radius:3px;background:var(--bg3);overflow:hidden}
+  .dims{display:flex;gap:22px;flex-wrap:wrap}
+  .dim{display:flex;flex-direction:column;gap:6px}
+  .dim .dl{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.5px}
+  .dim .bar{width:90px;height:6px;border-radius:3px;background:var(--bg3);overflow:hidden}
   .dim .bar i{display:block;height:100%;background:var(--amber);border-radius:3px}
+  .comp{font-family:var(--mono);color:var(--teal);font-size:14px}
+  .rat{color:var(--ink-dim);font-size:14.5px;line-height:1.7;white-space:pre-wrap}
+  .flags{display:flex;gap:8px;flex-wrap:wrap}
+  .flag{font-size:12.5px;color:#e8a59a;background:rgba(232,115,107,.08);border:1px solid rgba(232,115,107,.2);border-radius:7px;padding:4px 11px}
+  textarea.notes{width:100%;min-height:120px;background:var(--bg2);border:1px solid var(--line2);border-radius:11px;
+    color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;padding:14px 16px;resize:vertical;outline:none}
+  textarea.notes:focus{border-color:var(--amber-dim)}
+  textarea.notes:disabled{opacity:.6}
+  .notehint{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:7px}
 
-  .detail{display:none;margin-top:13px;padding-top:13px;border-top:1px solid var(--line)}
-  .card.open .detail{display:block;animation:rise .25s both}
-  .detail .rat{color:var(--ink-dim);font-size:13px;line-height:1.65}
-  .detail .comp{font-family:var(--mono);font-size:12px;color:var(--teal);margin-top:8px}
-  .flags{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
-  .flag{font-size:11px;color:#e8a59a;background:rgba(232,115,107,.08);
-    border:1px solid rgba(232,115,107,.2);border-radius:6px;padding:3px 9px}
-  .chev{margin-left:auto;color:var(--ink-faint);font-family:var(--mono);font-size:11px;
-    align-self:center;transition:transform .2s}
-  .card.open .chev{transform:rotate(90deg)}
-
-  .empty{text-align:center;padding:80px 20px;color:var(--ink-faint);font-family:var(--mono)}
-  footer{padding:24px 30px;border-top:1px solid var(--line);color:var(--ink-faint);
-    font-family:var(--mono);font-size:11px}
-  @media(max-width:640px){
-    .card{grid-template-columns:52px 1fr;gap:12px}
-    .score{width:52px;height:52px}.score .v{font-size:19px}
-    header,.controls,main{padding-left:16px;padding-right:16px}
-  }
+  /* toast */
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;
+    background:var(--bg3);border:1px solid var(--line2);border-radius:11px;padding:13px 20px;font-size:13.5px;
+    box-shadow:0 18px 50px rgba(0,0,0,.6);transition:.25s;pointer-events:none;max-width:560px;z-index:50}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.err{border-color:var(--rose-dim);color:#e8a59a}
+  #toast.ok{border-color:var(--teal-dim)}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);border-top-color:var(--amber);
+    border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:8px}
+  @keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">
-    <h1>JOB<span class="dot">/</span>SCOUT</h1>
-    <span class="sub">AI · Innovation · Leadership — Chicago</span>
-    <span class="gen">updated __GENERATED__</span>
+  <div class="brand">JOB<span class="d">/</span>SCOUT</div>
+  <div class="cmd">
+    <div class="in"><span class="pre">⌘</span>
+      <input id="cmd" placeholder="paste a job link, or a company careers URL…" autocomplete="off">
+    </div>
+    <button class="j" id="addJob" title="Scrape this posting + score it into your shortlist">＋ Scrape job</button>
+    <button id="addCo" title="Watch this company's careers feed on every scan">＋ Watch company</button>
   </div>
-  <div class="stats" id="stats"></div>
+  <div class="conn" id="conn"><span class="dot"></span><span id="connt">read-only</span></div>
 </header>
 
-<div class="controls">
-  <div class="field"><label>Search</label>
-    <input type="search" id="q" placeholder="title, company, rationale…"></div>
-  <div class="field"><label>Company</label><select id="company"></select></div>
-  <div class="field"><label>Source</label><select id="source"></select></div>
-  <div class="field"><label>Status</label><select id="status"></select></div>
-  <div class="field range"><label>Min score</label>
-    <div class="row"><input type="range" id="minscore" min="0" max="100" value="0" step="5">
-    <span class="val" id="minval">0</span></div></div>
-  <div class="field"><label>Sort</label><select id="sort">
-    <option value="score-desc">Score ▾</option>
-    <option value="score-asc">Score ▴</option>
-    <option value="seen-desc">Newest seen</option>
-    <option value="company">Company A–Z</option>
-    <option value="title">Title A–Z</option>
-  </select></div>
-  <label class="check"><input type="checkbox" id="hidestale" checked> Hide stale</label>
-  <div class="count" id="count"></div>
+<div class="app">
+  <div class="pane left">
+    <div class="filters">
+      <div class="seg" id="seg"></div>
+      <div class="frow">
+        <input type="search" id="q" placeholder="search title, company, notes…">
+        <select id="company"></select>
+        <select id="source"></select>
+        <select id="sort">
+          <option value="score">Score ▾</option>
+          <option value="seen">Newest</option>
+          <option value="company">Company</option>
+        </select>
+      </div>
+    </div>
+    <div class="lcount" id="count"></div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="pane">
+    <div class="detail" id="detail"></div>
+  </div>
 </div>
-
-<main id="list"></main>
-<footer>job-scout · MiniMax-scored against résumé · click a card to expand rationale &amp; red flags</footer>
+<div id="toast"></div>
 
 <script>
 const DATA = /*__DATA__*/null;
+const GEN = "__GENERATED__";
+const SERVED = location.protocol === 'http:' || location.protocol === 'https:';
 const DIMS = [["mission","MIS"],["comp","COMP"],["learning","LRN"],["wlb","WLB"],["prestige","PRES"]];
+const PIPE = ["interested","applied","interview","offer"];
 const SCALE_MAX = 5;
 
-const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+const $ = s => document.querySelector(s);
+const num = v => { const n = parseFloat(v); return isNaN(n)?null:n; };
+const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function heat(s){
-  if(s==null) return {bg:'#1b1e25',bd:'#262a33',fg:'#646a76'};
-  if(s>=75) return {bg:'rgba(110,231,168,.12)',bd:'#2f6b4d',fg:'#7eeaa8'};
-  if(s>=60) return {bg:'rgba(182,227,106,.12)',bd:'#566b2f',fg:'#c2e36a'};
+  if(s==null) return {bg:'var(--bg3)',bd:'var(--line)',fg:'var(--ink-faint)'};
+  if(s>=75) return {bg:'rgba(126,234,168,.12)',bd:'#2f6b4d',fg:'#7eeaa8'};
+  if(s>=60) return {bg:'rgba(194,227,106,.12)',bd:'#566b2f',fg:'#c2e36a'};
   if(s>=45) return {bg:'rgba(245,196,81,.12)',bd:'#6b562a',fg:'#f5c451'};
   if(s>=30) return {bg:'rgba(240,146,90,.12)',bd:'#6b452a',fg:'#f0925a'};
   return {bg:'rgba(232,115,107,.10)',bd:'#6b3330',fg:'#e8736b'};
 }
-const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-// ── interest capture ──
-// Local override store: choices made in the browser (so they survive re-render
-// and persist even when opened as a bare file:// with no server running).
-const LS_KEY = 'jobscout.status';
-function loadOverrides(){
-  try{ return JSON.parse(localStorage.getItem(LS_KEY)||'{}'); }catch(e){ return {}; }
-}
-function saveOverride(url,status){
-  try{ const o=loadOverrides(); o[url]=status; localStorage.setItem(LS_KEY,JSON.stringify(o)); }catch(e){}
-}
-// Apply any stored choices onto the in-memory DATA before rendering.
-function applyOverrides(){
-  const o=loadOverrides();
-  DATA.forEach(r=>{ if(o[r.apply_url]) r.status=o[r.apply_url]; });
-}
-// Update one card's pill (text + class) in place.
-function setPill(card,status){
-  const pill=card.querySelector('.pill');
-  if(pill){ pill.className='pill '+status; pill.textContent=status; }
-}
-// Button handler: POST to the local server; on any failure fall back to
-// localStorage. Either way the pill updates and we never throw.
-function setStatus(ev,btn,url,status){
-  ev.stopPropagation();
-  const card=btn.closest('.card');
-  const persistLocal=()=>{ saveOverride(url,status); };
-  const reflect=()=>{
-    const row=DATA.find(r=>r.apply_url===url); if(row) row.status=status;
-    if(card) setPill(card,status);
-    btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),450);
-  };
-  fetch('/status',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({apply_url:url,status:status})})
-    .then(res=>{ if(!res.ok) throw new Error('bad status'); reflect(); })
-    .catch(()=>{ persistLocal(); reflect(); });
+// local fallback when opened as a file (no server)
+const LS = { get(){try{return JSON.parse(localStorage.jobscout||'{}')}catch(e){return {}}},
+  set(o){localStorage.jobscout=JSON.stringify(o)} };
+function applyLocal(){ if(SERVED) return; const o=LS.get();
+  DATA.forEach(r=>{ const e=o[r.apply_url]; if(e){ if(e.status)r.status=e.status; if(e.notes!=null)r.notes=e.notes; }}); }
+applyLocal();
+
+let sel = null;
+const state = { q:'', stage:'all', company:'', source:'', sort:'score' };
+
+// ── persistence ──
+async function save(url, fields){
+  const r = DATA.find(x=>x.apply_url===url); if(r) Object.assign(r, fields);
+  if(SERVED){
+    try{ const res = await fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({apply_url:url, ...fields})});
+      if(!res.ok) throw 0;
+      if(fields.status==='applied' && r && !r.applied_on) r.applied_on = new Date().toISOString().slice(0,10);
+    }catch(e){ toast('Could not save — is the server running?','err'); }
+  } else {
+    const o=LS.get(); o[url]=Object.assign(o[url]||{}, fields); LS.set(o);
+  }
 }
 
-// ── populate filters ──
-const elQ=document.getElementById('q'), elCo=document.getElementById('company'),
-  elSrc=document.getElementById('source'), elSt=document.getElementById('status'),
-  elMin=document.getElementById('minscore'), elMinV=document.getElementById('minval'),
-  elSort=document.getElementById('sort'), elHide=document.getElementById('hidestale'),
-  elList=document.getElementById('list'), elCount=document.getElementById('count');
-
-function fillSelect(el,vals,allLabel){
-  el.innerHTML = '<option value="">'+allLabel+'</option>' +
-    vals.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
-}
-// Fold any localStorage choices into DATA before building filters/stats.
-applyOverrides();
-const uniq = key => [...new Set(DATA.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-fillSelect(elCo, uniq('company'), 'All companies');
-fillSelect(elSrc, uniq('source'), 'All sources');
-fillSelect(elSt, uniq('status'), 'All statuses');
-
-// ── stats ──
-(function(){
-  const total=DATA.length, news=DATA.filter(r=>r.status==='new').length,
-    stale=DATA.filter(r=>r.status==='stale').length,
-    scored=DATA.map(r=>num(r.score)).filter(v=>v!=null),
-    top=scored.length?Math.max(...scored):0,
-    avg=scored.length?(scored.reduce((a,b)=>a+b,0)/scored.length):0;
-  const s=[['Total',total,''],['New',news,'accent'],['Stale',stale,''],
-    ['Top score',top.toFixed(0),'accent'],['Avg score',avg.toFixed(0),'']];
-  document.getElementById('stats').innerHTML = s.map(([l,n,c])=>
-    '<div class="stat '+c+'"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>').join('');
-})();
-
-// ── render ──
-function card(r,i){
-  const s=num(r.score), h=heat(s), stale=r.status==='stale';
-  const dims = DIMS.map(([k,lab])=>{
-    const v=num(r[k]); const pct=v==null?0:Math.round(100*v/SCALE_MAX);
-    return '<div class="dim"><span class="dl">'+lab+'</span><span class="bar"><i style="width:'+pct+'%"></i></span></div>';
-  }).join('');
-  const flags=(r.red_flags||'').split(',').map(x=>x.trim()).filter(Boolean);
-  const flagsHtml = flags.length? '<div class="flags">'+flags.map(f=>'<span class="flag">'+esc(f)+'</span>').join('')+'</div>':'';
-  const compHtml = r.comp_estimate? '<div class="comp">$ '+esc(r.comp_estimate)+'</div>':'';
-  const ratHtml = r.rationale? '<div class="rat">'+esc(r.rationale)+'</div>':'<div class="rat" style="color:var(--ink-faint)">No rationale recorded.</div>';
-  const titleInner = r.apply_url
-    ? '<a class="title" href="'+esc(r.apply_url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(r.title)+'</a>'
-    : '<span class="title">'+esc(r.title)+'</span>';
-  const when = r.first_seen ? 'first seen '+esc(r.first_seen) : '';
-  const au = esc(r.apply_url||'');
-  // URL is read from the card's HTML-escaped data-url at click time (dataset.url),
-  // never inlined into this JS string literal — esc() doesn't escape single quotes,
-  // so inlining a crafted apply_url could break out of the handler (XSS).
-  const acts = au ? '<div class="acts">'
-    +   '<button class="act interested" onclick="setStatus(event,this,this.closest(\'.card\').dataset.url,\'interested\')">★ Interested</button>'
-    +   '<button class="act applied" onclick="setStatus(event,this,this.closest(\'.card\').dataset.url,\'applied\')">✓ Applied</button>'
-    +   '<button class="act pass" onclick="setStatus(event,this,this.closest(\'.card\').dataset.url,\'pass\')">✕ Pass</button>'
-    + '</div>' : '';
-  return '<article class="card'+(stale?' stale':'')+'" data-url="'+au+'" style="animation-delay:'+Math.min(i*22,400)+'ms" onclick="this.classList.toggle(\'open\')">'
-    + '<div class="score" style="background:'+h.bg+';border-color:'+h.bd+';color:'+h.fg+'">'
-    +   '<span class="v">'+(s==null?'—':s.toFixed(0))+'</span><span class="k">score</span></div>'
-    + '<div class="body">'
-    +   '<div class="titlerow">'+titleInner
-    +     '<span class="pill '+esc(r.status)+'">'+esc(r.status||'')+'</span><span class="chev">▸</span></div>'
-    +   '<div class="meta"><span class="co">'+esc(r.company)+'</span>'
-    +     (r.location?'<span class="sep">·</span><span>'+esc(r.location)+'</span>':'')
-    +     (r.source?'<span class="src">'+esc(r.source)+'</span>':'')
-    +     (r.date_posted?'<span class="sep">·</span><span>'+esc(r.date_posted)+'</span>':'')
-    +     (when?'<span class="sep">·</span><span style="color:var(--ink-faint)">'+when+'</span>':'')+'</div>'
-    +   '<div class="dims">'+dims+'</div>'
-    +   acts
-    +   '<div class="detail">'+ratHtml+compHtml+flagsHtml+'</div>'
-    + '</div></article>';
+async function addUrl(kind){
+  const url = $('#cmd').value.trim();
+  if(!url){ $('#cmd').focus(); return; }
+  if(!SERVED){ toast('Run  scripts/serve.py  to add jobs & companies.','err'); return; }
+  const ep = kind==='job' ? '/add-job' : '/add-company';
+  toast('<span class="spin"></span>'+(kind==='job'?'Scraping & scoring…':'Resolving & verifying…'), 'ok', true);
+  try{
+    const res = await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    const j = await res.json();
+    if(!j.ok){ toast(j.error||'Failed.','err'); return; }
+    $('#cmd').value='';
+    if(kind==='job' && j.row){
+      const i = DATA.findIndex(x=>x.apply_url===j.row.apply_url);
+      if(i>=0) DATA[i]=j.row; else DATA.unshift(j.row);
+      buildFilters(); render(); selectRow(j.row.apply_url); toast(j.message||'Added.','ok');
+    } else { toast(j.message||'Watching company.','ok'); }
+  }catch(e){ toast('Request failed.','err'); }
 }
 
-function apply(){
-  const q=elQ.value.trim().toLowerCase(), co=elCo.value, src=elSrc.value,
-    st=elSt.value, min=parseFloat(elMin.value), hide=elHide.checked, sort=elSort.value;
+let toastT;
+function toast(html, cls, sticky){ const t=$('#toast'); t.className=cls||''; t.innerHTML=html; t.classList.add('show');
+  clearTimeout(toastT); if(!sticky) toastT=setTimeout(()=>t.classList.remove('show'), 3200); }
+
+// ── filters / list ──
+function uniq(key){ return [...new Set(DATA.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
+function buildFilters(){
+  const counts = {all:DATA.length}; PIPE.forEach(s=>counts[s]=DATA.filter(r=>r.status===s).length);
+  const segs = [['all','All'],['interested','★ Interested'],['applied','✓ Applied'],['interview','◇ Interview'],['offer','◆ Offer']];
+  $('#seg').innerHTML = segs.map(([s,l])=>`<button data-s="${s}" class="${state.stage===s?'on':''}">${l}<span class="n">${counts[s]||0}</span></button>`).join('');
+  $('#seg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.stage=b.dataset.s;render()});
+  fill('#company', uniq('company'), 'All companies'); fill('#source', uniq('source'), 'All sources');
+}
+function fill(sel,vals,all){ const e=$(sel), cur=e.value;
+  e.innerHTML=`<option value="">${all}</option>`+vals.map(v=>`<option ${v===cur?'selected':''}>${esc(v)}</option>`).join(''); }
+
+function filtered(){
   let rows = DATA.filter(r=>{
-    if(co && r.company!==co) return false;
-    if(src && r.source!==src) return false;
-    if(st && r.status!==st) return false;
-    if(hide && r.status==='stale') return false;
-    const s=num(r.score); if(min>0 && (s==null || s<min)) return false;
-    if(q){
-      const hay=(r.title+' '+r.company+' '+r.location+' '+r.rationale+' '+r.red_flags).toLowerCase();
-      if(!hay.includes(q)) return false;
-    }
+    if(state.stage!=='all' && r.status!==state.stage) return false;
+    if(state.stage==='all' && r.status==='stale' && !state.q && !state.company) return false;
+    if(state.company && r.company!==state.company) return false;
+    if(state.source && r.source!==state.source) return false;
+    if(state.q){ const h=(r.title+' '+r.company+' '+r.location+' '+r.notes+' '+r.rationale).toLowerCase();
+      if(!h.includes(state.q)) return false; }
     return true;
   });
-  const sv=r=>{const v=num(r.score);return v==null?-1:v;};
-  rows.sort((a,b)=>{
-    switch(sort){
-      case 'score-asc': return sv(a)-sv(b);
-      case 'seen-desc': return (b.first_seen||'').localeCompare(a.first_seen||'');
-      case 'company': return a.company.localeCompare(b.company)||sv(b)-sv(a);
-      case 'title': return a.title.localeCompare(b.title);
-      default: return sv(b)-sv(a);
-    }
-  });
-  elCount.innerHTML='<b>'+rows.length+'</b> of '+DATA.length+' roles';
-  elList.innerHTML = rows.length
-    ? rows.map((r,i)=>card(r,i)).join('')
-    : '<div class="empty">No roles match these filters.</div>';
+  const sv=r=>{const v=num(r.score);return v==null?-1:v};
+  rows.sort((a,b)=> state.sort==='company'?a.company.localeCompare(b.company)||sv(b)-sv(a)
+    : state.sort==='seen'?(b.first_seen||'').localeCompare(a.first_seen||'') : sv(b)-sv(a));
+  return rows;
 }
-elMin.addEventListener('input',()=>{elMinV.textContent=elMin.value;apply();});
-[elQ,elCo,elSrc,elSt,elSort,elHide].forEach(e=>e.addEventListener('input',apply));
-apply();
+
+function render(){
+  buildFilters();
+  const rows = filtered();
+  $('#count').innerHTML = `<b>${rows.length}</b> of ${DATA.length} roles`;
+  $('#list').innerHTML = rows.length ? rows.map((r,i)=>rowHtml(r,i)).join('')
+    : '<div class="empty" style="padding:60px 20px">No roles match.</div>';
+  $('#list').querySelectorAll('.row').forEach(el=>el.onclick=()=>selectRow(el.dataset.url));
+  if(sel && rows.some(r=>r.apply_url===sel)) renderDetail(); else if(!rows.some(r=>r.apply_url===sel)) { sel=null; renderDetail(); }
+}
+function rowHtml(r,i){
+  const s=num(r.score), h=heat(s);
+  return `<div class="row ${r.apply_url===sel?'sel':''} ${r.status==='stale'?'stale':''}" data-url="${esc(r.apply_url)}" style="animation-delay:${Math.min(i*14,300)}ms">
+    <div class="sc" style="background:${h.bg};border-color:${h.bd};color:${h.fg}"><span class="v">${s==null?'—':s.toFixed(0)}</span><span class="k">SCORE</span></div>
+    <div><div class="rtitle">${esc(r.title)}</div><div class="rmeta">${esc(r.company)} <span class="src">· ${esc(r.source)}</span>${r.location?' · '+esc(r.location):''}</div></div>
+    <div class="pdot ${esc(r.status)}" title="${esc(r.status)}"></div></div>`;
+}
+function selectRow(url){ sel=url; render(); document.querySelector('.detail').scrollTop=0; }
+
+// ── detail ──
+function renderDetail(){
+  const r = DATA.find(x=>x.apply_url===sel);
+  const d = $('#detail');
+  if(!r){ d.innerHTML = `<div class="empty"><div class="big">⌖</div><div>Select a role to see the detail,<br>rationale, and your notes.</div></div>`; return; }
+  const s=num(r.score), h=heat(s);
+  const dims = DIMS.map(([k,l])=>{ const v=num(r[k]); return `<div class="dim"><span class="dl">${l}</span><span class="bar"><i style="width:${v==null?0:Math.round(100*v/SCALE_MAX)}%"></i></span></div>`;}).join('');
+  const flags=(r.red_flags||'').split(',').map(x=>x.trim()).filter(Boolean);
+  const exits = [['pass','✕ Pass'],['archived','⌫ Archive']];
+  d.innerHTML = `
+    <div class="dhead">
+      <div class="dsc" style="background:${h.bg};border-color:${h.bd};color:${h.fg}"><span class="v">${s==null?'—':s.toFixed(0)}</span><span class="k">SCORE</span></div>
+      <div style="min-width:0">
+        <div class="dtitle">${esc(r.title)}</div>
+        <div class="dmeta"><span class="co">${esc(r.company)}</span>${r.location?'<span>· '+esc(r.location)+'</span>':''}<span class="src">${esc(r.source)}</span>${r.date_posted?'<span>· posted '+esc(r.date_posted)+'</span>':''}${r.first_seen?'<span style="color:var(--ink-faint)">· seen '+esc(r.first_seen)+'</span>':''}</div>
+        ${r.apply_url?`<a class="open" href="${esc(r.apply_url)}" target="_blank" rel="noopener">Open posting ↗</a>`:''}
+      </div>
+    </div>
+    <div class="sect"><div class="slabel">Pipeline</div>
+      <div class="pipe">
+        ${PIPE.map(p=>`<button class="stage ${r.status===p?'on':''}" data-s="${p}">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}
+        ${exits.map(([s2,l])=>`<button class="stage exit ${r.status===s2?'on':''}" data-s="${s2}">${l}</button>`).join('')}
+      </div>${r.applied_on?`<div class="appdate">Applied ${esc(r.applied_on)}</div>`:''}
+    </div>
+    ${num(r.mission)!=null||num(r.score)!=null?`<div class="sect"><div class="slabel">Fit by dimension</div><div class="dims">${dims}</div></div>`:''}
+    ${r.comp_estimate?`<div class="sect"><div class="slabel">Compensation</div><div class="comp">${esc(r.comp_estimate)}</div></div>`:''}
+    ${r.rationale?`<div class="sect"><div class="slabel">Why this scored</div><div class="rat">${esc(r.rationale)}</div></div>`:''}
+    ${flags.length?`<div class="sect"><div class="slabel">Red flags</div><div class="flags">${flags.map(f=>`<span class="flag">${esc(f)}</span>`).join('')}</div></div>`:''}
+    <div class="sect"><div class="slabel">Your notes</div>
+      <textarea class="notes" id="notes" placeholder="referred by… · follow up on… · recruiter name… · why you like it">${esc(r.notes)}</textarea>
+      <div class="notehint" id="notehint">${SERVED?'autosaves':'saved locally (run the server to persist to the tracker)'}</div>
+    </div>`;
+  d.querySelectorAll('.stage').forEach(b=>b.onclick=()=>{ save(r.apply_url,{status:b.dataset.s}); render(); });
+  const ta = $('#notes'); let nt;
+  ta.oninput=()=>{ clearTimeout(nt); nt=setTimeout(()=>{ save(r.apply_url,{notes:ta.value}); $('#notehint').textContent=SERVED?'saved ✓':'saved locally'; }, 600); };
+}
+
+// ── wire up ──
+function setConn(){ const c=$('#conn'); if(SERVED){ c.classList.add('live'); $('#connt').textContent='live'; }
+  else { $('#addJob').disabled=true; $('#addCo').disabled=true; } }
+$('#q').oninput=e=>{state.q=e.target.value.trim().toLowerCase();render()};
+$('#company').onchange=e=>{state.company=e.target.value;render()};
+$('#source').onchange=e=>{state.source=e.target.value;render()};
+$('#sort').onchange=e=>{state.sort=e.target.value;render()};
+$('#addJob').onclick=()=>addUrl('job'); $('#addCo').onclick=()=>addUrl('company');
+$('#cmd').onkeydown=e=>{ if(e.key==='Enter') addUrl(/\/jobs?\/|\/job\/|currentJobId|gh_jid|\/postings?\//.test($('#cmd').value)?'job':'company'); };
+setConn();
+const _first = filtered()[0]; if(_first) sel = _first.apply_url;  // open the top role by default
+render();
 </script>
 </body>
 </html>
