@@ -41,18 +41,13 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from datetime import datetime, timedelta, timezone
 
-import requests
+from . import _common
 
 log = logging.getLogger("job_scout.sources.ats.workday")
 
 SOURCE = "workday"
-_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
 _TIMEOUT = 20
 _PAGE_LIMIT = 20          # Workday's typical page size
 _MAX_TOTAL = 60          # hard cap on postings pulled per company (low volume)
@@ -62,12 +57,6 @@ _API = _HOST + "/wday/cxs/{tenant}/{site}/jobs"
 
 # "Posted 3 Days Ago", "Posted Yesterday", "Posted Today", "Posted 30+ Days Ago"
 _REL_RE = re.compile(r"(\d+)\s*\+?\s*(day|week|month|hour|minute)s?\s+ago", re.I)
-
-
-def _is_remote(location: str | None) -> bool | None:
-    if not location:
-        return None
-    return bool(re.search(r"\bremote\b", location, re.I))  # \b avoids "Claremont" etc.
 
 
 def _parse_posted_on(value: str | None, now: datetime) -> datetime | None:
@@ -118,30 +107,6 @@ def _parse_posted_on(value: str | None, now: datetime) -> datetime | None:
     return dt
 
 
-def _post(url: str, body: dict) -> requests.Response:
-    """Single POST with one light retry/backoff on transient failures."""
-    headers = {
-        "User-Agent": _UA,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    last_exc: Exception | None = None
-    for attempt in range(2):  # at most one retry
-        try:
-            resp = requests.post(url, json=body, headers=headers, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp
-        except requests.RequestException as e:
-            last_exc = e
-            if attempt == 0:
-                try:
-                    time.sleep(1.0)  # light backoff
-                except Exception:  # noqa: BLE001
-                    pass
-    assert last_exc is not None
-    raise last_exc
-
-
 def fetch(company, config) -> list[dict]:
     """Fetch open Workday postings for `company`. Returns raw dicts.
 
@@ -177,7 +142,7 @@ def fetch(company, config) -> list[dict]:
             "searchText": search_text,
         }
         try:
-            resp = _post(api_url, body)
+            resp = _common.post(api_url, body, timeout=_TIMEOUT)
             data = resp.json()
         except Exception as e:  # noqa: BLE001 — never crash the run
             log.warning("workday fetch failed for %s/%s: %s", tenant, site, e)
@@ -215,7 +180,7 @@ def fetch(company, config) -> list[dict]:
                     "url": url,
                     "source": SOURCE,
                     "location": location,
-                    "is_remote": _is_remote(location),
+                    "is_remote": _common.is_remote_text(location),
                     "date_posted": dt.date().isoformat() if dt else None,
                     "description": None,  # detail call skipped to keep volume low
                     "comp_text": None,
