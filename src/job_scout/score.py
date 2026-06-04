@@ -310,6 +310,15 @@ def _llm_score(jobs: list[Job], config: Config) -> list[Job]:
     return jobs
 
 
+def score_one_no_filter(jobs: list[Job], config: Config) -> list[Job]:
+    """Score jobs with the LLM rubric ONLY — no hard filters, no pre-filter.
+
+    For manually-added roles: the user pasted them on purpose, so we never want a
+    seniority/exclude filter to drop them. Just score and return.
+    """
+    return _sort_by_score(_llm_score(jobs, config))
+
+
 def _apply_score(job: Job, result: dict | None, dimensions, scale_lo, scale_hi) -> None:
     """Write one scoring result onto its Job (None -> mark scoring_failed)."""
     if result is None:

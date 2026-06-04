@@ -40,11 +40,16 @@ _DEFAULT_PATH = _REPO_ROOT / "output" / "jobs.csv"
 
 # Statuses the *user* sets — never overwritten by the pipeline's default "new".
 _USER_STATUSES = frozenset(
-    {"reviewing", "interested", "applied", "pass", "rejected", "archived"}
+    {"reviewing", "interested", "applied", "interview", "offer", "pass",
+     "rejected", "archived"}
 )
 # Of those, the ones that survive even when the listing vanishes from source
-# (you applied/passed/etc. — that decision outlives the posting).
-_TERMINAL_STATUSES = frozenset({"interested", "applied", "pass", "rejected", "archived"})
+# (you applied/interviewed/passed/etc. — that decision outlives the posting).
+_TERMINAL_STATUSES = frozenset(
+    {"interested", "applied", "interview", "offer", "pass", "rejected", "archived"}
+)
+# Free-text / dated fields the user owns — always carried over from the prior row.
+_PRESERVE_COLS = ("notes", "applied_on")
 
 _URL_COL = "apply_url"
 _STATUS_COL = "status"
@@ -118,6 +123,10 @@ def write_csv(jobs: list[Job], config) -> None:
             prev_status = (prev.get(_STATUS_COL) or "").strip()
             if prev_status in _USER_STATUSES:
                 row[_STATUS_COL] = prev_status
+            # Carry over the user's notes / applied date.
+            for col in _PRESERVE_COLS:
+                if prev.get(col):
+                    row[col] = prev[col]
         out[job.url] = row
 
     # Mark rows whose listing is gone from this run as stale (keep terminal ones).

@@ -111,5 +111,60 @@ def test_post_handler_rejects_invalid_status():
     # an arbitrary value is rejected before set_status is ever called.
     assert "interested" in serve.ALLOWED_STATUSES
     assert "applied" in serve.ALLOWED_STATUSES
+    assert "interview" in serve.ALLOWED_STATUSES
+    assert "offer" in serve.ALLOWED_STATUSES
     assert "pass" in serve.ALLOWED_STATUSES
+    assert "stale" not in serve.ALLOWED_STATUSES
     assert "bogus" not in serve.ALLOWED_STATUSES
+
+
+def test_update_row_sets_notes_and_autostamps_applied(tmp_path):
+    csv_path = tmp_path / "jobs.csv"
+    _write_csv(csv_path, [_row("https://example.com/a")])
+
+    # notes are saved
+    assert serve.update_row(csv_path, "https://example.com/a", {"notes": "referred by Sam"}) is True
+    _, rows = _read_csv(csv_path)
+    assert rows[0]["notes"] == "referred by Sam"
+    assert rows[0]["applied_on"] == ""  # not applied yet
+
+    # marking applied auto-stamps the date
+    serve.update_row(csv_path, "https://example.com/a", {"status": "applied"})
+    _, rows = _read_csv(csv_path)
+    assert rows[0]["status"] == "applied"
+    assert rows[0]["applied_on"]  # a date was stamped
+    stamped = rows[0]["applied_on"]
+
+    # advancing to interview keeps the original applied date
+    serve.update_row(csv_path, "https://example.com/a", {"status": "interview"})
+    _, rows = _read_csv(csv_path)
+    assert rows[0]["status"] == "interview"
+    assert rows[0]["applied_on"] == stamped
+
+
+def test_append_job_adds_and_upserts(tmp_path):
+    from job_scout.models import Job
+    csv_path = tmp_path / "jobs.csv"
+    _write_csv(csv_path, [_row("https://example.com/a")])
+
+    job = Job(id="x", title="Manual Role", company="Northwind",
+              url="https://example.com/manual", source="manual",
+              status="interested", score=72.0)
+    serve.append_job(csv_path, job)
+    _, rows = _read_csv(csv_path)
+    by_url = {r["apply_url"]: r for r in rows}
+    assert len(rows) == 2
+    assert by_url["https://example.com/manual"]["title"] == "Manual Role"
+    assert by_url["https://example.com/manual"]["status"] == "interested"
+    assert by_url["https://example.com/manual"]["first_seen"]  # stamped
+
+    # re-adding the same URL upserts (no duplicate) and keeps user status
+    serve.update_row(csv_path, "https://example.com/manual", {"status": "applied"})
+    job2 = Job(id="x", title="Manual Role v2", company="Northwind",
+               url="https://example.com/manual", source="manual", score=80.0)
+    serve.append_job(csv_path, job2)
+    _, rows = _read_csv(csv_path)
+    by_url = {r["apply_url"]: r for r in rows}
+    assert len(rows) == 2  # still no dup
+    assert by_url["https://example.com/manual"]["title"] == "Manual Role v2"
+    assert by_url["https://example.com/manual"]["status"] == "applied"  # preserved
