@@ -108,7 +108,9 @@ def test_valid_statuses_contents():
         {
             STATUS_NEW,
             STATUS_REVIEWING,
+            "interested",
             STATUS_APPLIED,
+            "pass",
             STATUS_REJECTED,
             STATUS_ARCHIVED,
             STATUS_STALE,

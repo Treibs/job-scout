@@ -188,6 +188,24 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .pill.applied{color:#7ec97e;border-color:#2c512c}
   .pill.reviewing{color:var(--amber);border-color:var(--amber-dim)}
   .pill.rejected,.pill.archived{color:var(--ink-faint)}
+  .pill.interested{color:var(--teal);border-color:var(--teal-dim);background:rgba(84,214,196,.07)}
+  .pill.pass{color:var(--ink-faint)}
+
+  /* ── interest-capture buttons ───────────────────────── */
+  .acts{display:flex;gap:7px;margin-top:11px;flex-wrap:wrap}
+  .act{
+    font-family:var(--mono);font-size:11px;letter-spacing:.3px;
+    background:var(--bg3);border:1px solid var(--line);color:var(--ink-dim);
+    border-radius:7px;padding:4px 10px;cursor:pointer;user-select:none;
+    transition:border-color .14s,color .14s,background .14s,transform .1s;
+  }
+  .act:hover{color:var(--ink);border-color:var(--ink-faint)}
+  .act.interested:hover{color:var(--teal);border-color:var(--teal-dim);
+    background:rgba(84,214,196,.08)}
+  .act.applied:hover{color:#7ec97e;border-color:#2c512c;background:rgba(110,231,168,.08)}
+  .act.pass:hover{color:var(--ink-faint);border-color:var(--line)}
+  .act.flash{transform:scale(1.06);background:var(--amber-dim);
+    border-color:var(--amber);color:var(--ink)}
 
   .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;
     color:var(--ink-dim);font-size:12.5px}
@@ -274,6 +292,43 @@ function heat(s){
 }
 const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+// ── interest capture ──
+// Local override store: choices made in the browser (so they survive re-render
+// and persist even when opened as a bare file:// with no server running).
+const LS_KEY = 'jobscout.status';
+function loadOverrides(){
+  try{ return JSON.parse(localStorage.getItem(LS_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveOverride(url,status){
+  try{ const o=loadOverrides(); o[url]=status; localStorage.setItem(LS_KEY,JSON.stringify(o)); }catch(e){}
+}
+// Apply any stored choices onto the in-memory DATA before rendering.
+function applyOverrides(){
+  const o=loadOverrides();
+  DATA.forEach(r=>{ if(o[r.apply_url]) r.status=o[r.apply_url]; });
+}
+// Update one card's pill (text + class) in place.
+function setPill(card,status){
+  const pill=card.querySelector('.pill');
+  if(pill){ pill.className='pill '+status; pill.textContent=status; }
+}
+// Button handler: POST to the local server; on any failure fall back to
+// localStorage. Either way the pill updates and we never throw.
+function setStatus(ev,btn,url,status){
+  ev.stopPropagation();
+  const card=btn.closest('.card');
+  const persistLocal=()=>{ saveOverride(url,status); };
+  const reflect=()=>{
+    const row=DATA.find(r=>r.apply_url===url); if(row) row.status=status;
+    if(card) setPill(card,status);
+    btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),450);
+  };
+  fetch('/status',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({apply_url:url,status:status})})
+    .then(res=>{ if(!res.ok) throw new Error('bad status'); reflect(); })
+    .catch(()=>{ persistLocal(); reflect(); });
+}
+
 // ── populate filters ──
 const elQ=document.getElementById('q'), elCo=document.getElementById('company'),
   elSrc=document.getElementById('source'), elSt=document.getElementById('status'),
@@ -285,6 +340,8 @@ function fillSelect(el,vals,allLabel){
   el.innerHTML = '<option value="">'+allLabel+'</option>' +
     vals.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');
 }
+// Fold any localStorage choices into DATA before building filters/stats.
+applyOverrides();
 const uniq = key => [...new Set(DATA.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 fillSelect(elCo, uniq('company'), 'All companies');
 fillSelect(elSrc, uniq('source'), 'All sources');
@@ -318,7 +375,13 @@ function card(r,i){
     ? '<a class="title" href="'+esc(r.apply_url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(r.title)+'</a>'
     : '<span class="title">'+esc(r.title)+'</span>';
   const when = r.first_seen ? 'first seen '+esc(r.first_seen) : '';
-  return '<article class="card'+(stale?' stale':'')+'" style="animation-delay:'+Math.min(i*22,400)+'ms" onclick="this.classList.toggle(\'open\')">'
+  const au = esc(r.apply_url||'');
+  const acts = au ? '<div class="acts">'
+    +   '<button class="act interested" onclick="setStatus(event,this,\''+au+'\',\'interested\')">★ Interested</button>'
+    +   '<button class="act applied" onclick="setStatus(event,this,\''+au+'\',\'applied\')">✓ Applied</button>'
+    +   '<button class="act pass" onclick="setStatus(event,this,\''+au+'\',\'pass\')">✕ Pass</button>'
+    + '</div>' : '';
+  return '<article class="card'+(stale?' stale':'')+'" data-url="'+au+'" style="animation-delay:'+Math.min(i*22,400)+'ms" onclick="this.classList.toggle(\'open\')">'
     + '<div class="score" style="background:'+h.bg+';border-color:'+h.bd+';color:'+h.fg+'">'
     +   '<span class="v">'+(s==null?'—':s.toFixed(0))+'</span><span class="k">score</span></div>'
     + '<div class="body">'
@@ -330,6 +393,7 @@ function card(r,i){
     +     (r.date_posted?'<span class="sep">·</span><span>'+esc(r.date_posted)+'</span>':'')
     +     (when?'<span class="sep">·</span><span style="color:var(--ink-faint)">'+when+'</span>':'')+'</div>'
     +   '<div class="dims">'+dims+'</div>'
+    +   acts
     +   '<div class="detail">'+ratHtml+compHtml+flagsHtml+'</div>'
     + '</div></article>';
 }
