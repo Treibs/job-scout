@@ -12,8 +12,8 @@ def test_parse_company_url_each_ats():
         {"name": "Brex", "ats": "lever", "slug": "brex"}
     assert ingest.parse_company_url("https://jobs.ashbyhq.com/OpenAI")["ats"] == "ashby"
     assert ingest.parse_company_url("https://careers.smartrecruiters.com/Acme")["ats"] == "smartrecruiters"
-    wd = ingest.parse_company_url("https://cat.wd5.myworkdayjobs.com/en-US/CaterpillarCareers")
-    assert wd == {"name": "Cat", "ats": "workday", "tenant": "cat", "datacenter": "wd5", "site": "CaterpillarCareers"}
+    wd = ingest.parse_company_url("https://globex.wd5.myworkdayjobs.com/en-US/GlobexCareers")
+    assert wd == {"name": "Globex", "ats": "workday", "tenant": "globex", "datacenter": "wd5", "site": "GlobexCareers"}
     assert ingest.parse_company_url("https://example.com/careers") is None
 
 

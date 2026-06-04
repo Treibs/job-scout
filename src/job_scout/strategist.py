@@ -1,8 +1,8 @@
 """The strategist — the "thought" in the feedback loop.
 
 Every few days it reasons over the discovery ledger, the recent high-scoring
-roles, Robert's interest signals, and his resume, then proposes changes to the
-search — new keywords and companies, and prunes of its own dead experiments.
+roles, the user's interest signals, and their resume, then proposes changes to
+the search — new keywords and companies, and prunes of its own dead experiments.
 
 THE GUARDRAIL (non-negotiable): nothing is added unless it clearly fits the
 resume and the established target sectors, each with a written ``fit_reason`` and
@@ -13,7 +13,7 @@ Division of labour:
 - Keywords are handled end-to-end here (proposed + auto-applied to the
   strategist-owned ``config/discovery_additions.yaml``).
 - Companies are *proposed* here (name + reason); their ATS slug needs a web
-  lookup, so the cron (Kitsune, with web tools) resolves and adds them.
+  lookup, so the scheduled orchestrator (with web tools) resolves and adds them.
 - The user's hand-curated config is NEVER rewritten. Prunes only touch the
   strategist's own additions; suggestions about user-curated items go in the
   report for the human to act on.
@@ -31,9 +31,12 @@ import yaml
 
 log = logging.getLogger("job_scout.strategist")
 
-TARGET_SECTORS = (
-    "banking/insurance, industrials/manufacturing, CPG/food/retail, "
-    "sports/entertainment — Chicago area, AI/innovation/transformation leadership"
+# Generic fallback used only when the user hasn't set `search.target_sectors` in
+# their (git-ignored) config. Carries no personal profile — the real sectors come
+# from config and flow through the digest. Keeps nothing personal in the codebase.
+DEFAULT_TARGET_SECTORS = (
+    "the sectors, company types, and role families evidenced by the candidate's "
+    "resume and current target list"
 )
 RELEVANCE_THRESHOLD = 0.7
 _DEAD_AFTER_RUNS = 6  # an arm active this many runs with no high-scorer is "dead"
@@ -63,6 +66,7 @@ def digest(config, ledger: dict, csv_rows: list[dict], top_n: int = 15) -> dict:
                 for r in csv_rows if (r.get("status") or "") in ("interested", "applied")]
 
     return {
+        "target_sectors": config.search.target_sectors or DEFAULT_TARGET_SECTORS,
         "current_keywords": list(config.search.keywords),
         "current_companies": [c.name for c in config.companies.companies],
         "excluded_companies": list(config.search.hard_filters.exclude_companies),
@@ -87,9 +91,10 @@ def propose(digest_data: dict, resume_text: str, client, model: str,
     """Ask the model for guarded changes. ``client`` is an anthropic.Anthropic
     (or any object with ``messages.create``) — injectable for tests. Returns the
     parsed proposal, with adds filtered to relevance ≥ threshold."""
+    sectors = digest_data.get("target_sectors") or DEFAULT_TARGET_SECTORS
     system = (
         "You tune a personal job search for ONE candidate. Propose ONLY changes "
-        "that clearly fit the resume and these target sectors: " + TARGET_SECTORS + ".\n"
+        "that clearly fit the resume and these target sectors: " + sectors + ".\n"
         "GUARDRAIL: every added keyword/company needs a one-sentence `fit_reason` "
         "tying it to the resume + existing targets, and a `relevance` from 0 to 1. "
         "Bending to an adjacent sector or title is allowed ONLY with a strong "

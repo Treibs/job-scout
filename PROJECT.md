@@ -147,7 +147,7 @@ keywords:
   - "AI Adoption"
   - "AI Innovation"
 location:
-  query: "Chicago, IL"        # free text; sources interpret it
+  query: "City, ST"           # free text; sources interpret it (e.g. "Chicago, IL" or "Remote")
   distance_miles: 50
   remote_policy: "include"    # include | exclude | only
 seniority:                    # used by sources that support it + as a scoring gate

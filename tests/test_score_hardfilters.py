@@ -107,12 +107,12 @@ def test_exclude_companies_drops_by_employer():
     jobs = [
         _job("Head of AI", company="Google"),            # excluded
         _job("Head of AI", company="Amazon Web Services"),  # excluded (substring)
-        _job("Head of AI", company="Caterpillar Inc."),  # kept
-        _job("Head of AI", company="Northern Trust"),    # kept
+        _job("Head of AI", company="Globex Inc."),  # kept
+        _job("Head of AI", company="Initech"),    # kept
     ]
     out = titles_companies(score_jobs(jobs, cfg))
-    assert ("Head of AI", "Caterpillar Inc.") in out
-    assert ("Head of AI", "Northern Trust") in out
+    assert ("Head of AI", "Globex Inc.") in out
+    assert ("Head of AI", "Initech") in out
     assert all(c not in ("Google", "Amazon Web Services") for _, c in out)
     assert len(out) == 2
 
@@ -120,9 +120,9 @@ def test_exclude_companies_drops_by_employer():
 def test_exclude_companies_matches_company_not_description():
     """A non-tech employer that merely name-drops a tech vendor in the JD is kept."""
     cfg = make_config(exclude_companies=["microsoft"])
-    jobs = [_job("AI Director", company="Caterpillar", description="Experience with Microsoft Azure required.")]
+    jobs = [_job("AI Director", company="Globex", description="Experience with Microsoft Azure required.")]
     out = score_jobs(jobs, cfg)
-    assert len(out) == 1  # company is Caterpillar, not Microsoft -> kept
+    assert len(out) == 1  # company is Globex, not Microsoft -> kept
 
 
 # ── excluded role types (title field only) ───────────────────────────────────

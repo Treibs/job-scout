@@ -51,6 +51,12 @@ class SearchCfg(BaseModel):
     freshness_hours: int = 72
     results_per_board: int = 30
     hard_filters: HardFilters = Field(default_factory=HardFilters)
+    # The sectors / company types / role families the strategist should stay
+    # within when proposing new keywords and companies. Personal to the user, so
+    # it lives in config (git-ignored), not in code. Free text, e.g.
+    # "banking/insurance, manufacturing — <metro> area, AI leadership roles".
+    # Empty → the strategist falls back to a generic resume-derived guardrail.
+    target_sectors: str = ""
 
 
 # ── companies.yaml ──────────────────────────────────────────────────────────
