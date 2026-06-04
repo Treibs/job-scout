@@ -67,7 +67,7 @@ _REL_RE = re.compile(r"(\d+)\s*\+?\s*(day|week|month|hour|minute)s?\s+ago", re.I
 def _is_remote(location: str | None) -> bool | None:
     if not location:
         return None
-    return "remote" in location.lower()
+    return bool(re.search(r"\bremote\b", location, re.I))  # \b avoids "Claremont" etc.
 
 
 def _parse_posted_on(value: str | None, now: datetime) -> datetime | None:

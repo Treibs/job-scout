@@ -74,7 +74,7 @@ def _is_remote(workplace_type, location: str | None) -> bool | None:
     if isinstance(workplace_type, str) and workplace_type.strip().lower() == "remote":
         return True
     if location:
-        return "remote" in location.lower()
+        return bool(re.search(r"\bremote\b", location, re.I))  # \b avoids "Claremont" etc.
     if workplace_type is not None:
         return False
     return None

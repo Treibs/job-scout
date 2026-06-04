@@ -68,7 +68,7 @@ def _parse_iso(value: str | None) -> datetime | None:
 def _is_remote(location: str | None) -> bool | None:
     if not location:
         return None
-    return "remote" in location.lower()
+    return bool(re.search(r"\bremote\b", location, re.I))  # \b avoids "Claremont" etc.
 
 
 def _get(url: str, params: dict) -> requests.Response:

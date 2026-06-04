@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from datetime import date
 from pathlib import Path
 
 import yaml
+
+from ._jsonutil import extract_json as _extract_json
 
 log = logging.getLogger("job_scout.strategist")
 
@@ -183,7 +184,8 @@ def apply_changes(config_dir, *, add_keywords=None, remove_keywords=None,
     have = {k.lower() for k in kws}
     for k in add_keywords or []:
         if k and k.lower() not in have:
-            kws.append(k); have.add(k.lower())
+            kws.append(k)
+            have.add(k.lower())
     remove = {r.lower() for r in (remove_keywords or [])}
     kws = [k for k in kws if k.lower() not in remove]
 
@@ -191,13 +193,15 @@ def apply_changes(config_dir, *, add_keywords=None, remove_keywords=None,
     have_co = {(c.get("name") or "").lower() for c in cos}
     for c in add_companies or []:
         if c.get("name") and c["name"].lower() not in have_co:
-            cos.append(c); have_co.add(c["name"].lower())
+            cos.append(c)
+            have_co.add(c["name"].lower())
 
     excl = list(data.get("exclude_companies") or [])
     have_ex = {e.lower() for e in excl}
     for e in add_exclude or []:
         if e and e.lower() not in have_ex:
-            excl.append(e); have_ex.add(e.lower())
+            excl.append(e)
+            have_ex.add(e.lower())
 
     out = {"updated": date.today().isoformat(), "notes": notes,
            "keywords": kws, "companies": cos, "exclude_companies": excl}
@@ -226,20 +230,3 @@ def _text(resp) -> str:
     )
 
 
-def _extract_json(raw: str):
-    if not raw:
-        return None
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```[a-zA-Z0-9]*\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw).strip()
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", raw, re.S)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except json.JSONDecodeError:
-                return None
-    return None

@@ -16,9 +16,11 @@ returned Job and appends it to the tracker (as a `manual` source).
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
+import socket
 from html import unescape
 from urllib.parse import urlparse
 
@@ -71,6 +73,31 @@ def _meta(html: str, key: str) -> str | None:
     return _clean(m.group(1)) if m else None
 
 
+def _is_public_url(url: str) -> bool:
+    """True only if ``url``'s host resolves entirely to public IPs. Blocks SSRF —
+    e.g. cloud metadata (169.254.169.254), localhost, and RFC1918 ranges — when a
+    user-supplied URL is fetched server-side (via the dashboard's add-job/company).
+    Fails closed (returns False) on any resolution error."""
+    try:
+        host = (urlparse(url).hostname or "").strip()
+        if not host:
+            return False
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError, ValueError, OSError):
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_unspecified or addr.is_multicast):
+            return False
+    return True
+
+
 def ingest_url(url: str, fetch=None) -> Job | None:
     """Fetch ``url`` and build a Job (unscored, source=manual, status=interested).
     ``fetch`` is injectable for tests: a callable(url) -> html string (or None)."""
@@ -78,6 +105,7 @@ def ingest_url(url: str, fetch=None) -> Job | None:
     if not url.lower().startswith(("http://", "https://")):
         return None
 
+    explicit_fetch = fetch is not None  # tests inject fetch; skip the SSRF DNS check then
     fetch = fetch or _fetch
     host = (urlparse(url).hostname or "").lower()
 
@@ -94,6 +122,10 @@ def ingest_url(url: str, fetch=None) -> Job | None:
             return job
 
     # 3. Generic: fetch HTML, try JobPosting JSON-LD, then og:/meta fallback.
+    #    Guard the server-side fetch of a user-supplied host against SSRF.
+    if not explicit_fetch and not _is_public_url(url):
+        log.info("ingest refused non-public URL: %s", url)
+        return None
     html = fetch(url)
     if not html:
         return None
@@ -131,7 +163,6 @@ def _from_ats(url: str, host: str) -> dict | None:
     """Pull a single job from a known ATS's public JSON API (greenhouse, lever)."""
     path = urlparse(url).path
     if "greenhouse.io" in host:
-        m = re.search(r"/([^/]+)/jobs/(\d+)", path) or re.search(r"gh_jid=(\d+)", url)
         slug = re.search(r"/([^/]+)/jobs/", path)
         jid = re.search(r"jobs/(\d+)", path) or re.search(r"gh_jid=(\d+)", url)
         if slug and jid:

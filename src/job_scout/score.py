@@ -24,12 +24,12 @@ pure Python; the model only does the judgment work in stage 3.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+from ._jsonutil import extract_json as _extract_json
 from .config import Config
 from .models import Job
 
@@ -433,55 +433,6 @@ def _response_text(resp) -> str:
     return "".join(chunks)
 
 
-def _extract_json(raw: str) -> dict | None:
-    """Robustly pull the first JSON object out of a model response."""
-    if not raw:
-        return None
-    raw = raw.strip()
-
-    # Strip ```json ... ``` fences if the model added them despite instructions.
-    if raw.startswith("```"):
-        raw = re.sub(r"^```[a-zA-Z0-9]*\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw).strip()
-
-    # Fast path: the whole thing is JSON.
-    try:
-        obj = json.loads(raw)
-        return obj if isinstance(obj, dict) else None
-    except Exception:  # noqa: BLE001
-        pass
-
-    # Fallback: scan for a balanced {...} span and parse it.
-    start = raw.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    in_str = False
-    escape = False
-    for i in range(start, len(raw)):
-        ch = raw[i]
-        if in_str:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                candidate = raw[start : i + 1]
-                try:
-                    obj = json.loads(candidate)
-                    return obj if isinstance(obj, dict) else None
-                except Exception:  # noqa: BLE001
-                    return None
-    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
