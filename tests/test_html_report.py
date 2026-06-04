@@ -47,6 +47,22 @@ def test_render_missing_csv_returns_none(tmp_path):
     assert html_report.render(tmp_path / "nope.csv") is None
 
 
+def test_render_has_new_untagged_segment(tmp_path):
+    """The funnel filter bar exposes a 'New' (untagged-only) segment, and the
+    client-side untagged predicate treats default/empty status as untagged."""
+    csv_path = tmp_path / "jobs.csv"
+    _write_csv(csv_path, [
+        {"score": "70", "title": "A", "company": "X", "apply_url": "https://x/1", "status": "new"},
+        {"score": "60", "title": "B", "company": "Y", "apply_url": "https://x/2", "status": "interested"},
+        {"score": "50", "title": "C", "company": "Z", "apply_url": "https://x/3", "status": "stale"},
+    ])
+    html = html_report.render(csv_path).read_text(encoding="utf-8")
+    assert "'new','◦ New'" in html                       # segment wired into the bar
+    assert "const isUntagged = r => (r.status||'new')==='new'" in html  # untagged predicate
+    # stage logic routes 'new' through the untagged predicate
+    assert "if(state.stage==='new'){ if(!isUntagged(r)) return false; }" in html
+
+
 def test_render_strips_dangerous_url_schemes(tmp_path):
     """javascript:/data: apply_urls are dropped so they can't render as hrefs (XSS)."""
     csv_path = tmp_path / "jobs.csv"
