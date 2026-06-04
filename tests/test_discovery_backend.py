@@ -116,3 +116,25 @@ def test_strategist_propose_filters_by_relevance():
     assert kws == ["Chief AI Officer"]          # low-relevance "Barista" dropped
     assert out["add_companies"][0]["name"] == "U.S. Bank"
     assert out["remove_keywords"] == ["Dead Keyword"]
+
+
+def test_strategist_guard_drops_tracked_and_protects_core():
+    """The guard must not re-add tracked items, and must never remove core keywords."""
+    digest = {
+        "current_keywords": ["AI Strategy"],
+        "current_companies": ["Caterpillar"],
+        "excluded_companies": ["google"],
+    }
+    raw = {
+        "add_keywords": [{"keyword": "AI Strategy", "relevance": 0.9},   # already tracked
+                         {"keyword": "AI Governance", "relevance": 0.9}],  # new
+        "add_companies": [{"name": "Caterpillar", "relevance": 0.9},      # already tracked
+                          {"name": "Google", "relevance": 0.9},           # excluded
+                          {"name": "U.S. Bank", "relevance": 0.9}],       # new
+        "remove_keywords": ["AI Strategy", "Old Experiment"],            # 1st is core
+        "notes": "",
+    }
+    out = strategist._guard(strategist._filter(raw, 0.7), digest)
+    assert [k["keyword"] for k in out["add_keywords"]] == ["AI Governance"]
+    assert [c["name"] for c in out["add_companies"]] == ["U.S. Bank"]
+    assert out["remove_keywords"] == ["Old Experiment"]  # core "AI Strategy" protected
