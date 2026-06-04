@@ -135,11 +135,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
   /* filter bar */
   .filters{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:11px;
     background:rgba(11,12,15,.7);backdrop-filter:blur(8px)}
-  .seg{display:flex;gap:4px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:4px}
-  .seg button{flex:1;font-family:var(--mono);font-size:11.5px;letter-spacing:.3px;border:0;background:transparent;
+  .seg{display:flex;flex-wrap:wrap;gap:4px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:4px}
+  .seg button{flex:0 1 auto;min-width:0;font-family:var(--mono);font-size:11.5px;letter-spacing:.3px;border:0;background:transparent;
     color:var(--ink-faint);padding:7px 6px;border-radius:7px;cursor:pointer;transition:.12s;white-space:nowrap}
   .seg button:hover{color:var(--ink-dim)}
   .seg button.on{background:var(--bg4);color:var(--ink)}
+  .seg button.on[data-s="new"]{color:var(--amber)}
   .seg button.on[data-s="interested"]{color:var(--teal)} .seg button.on[data-s="applied"]{color:var(--green)}
   .seg button .n{opacity:.55;margin-left:5px}
   .frow{display:flex;gap:8px;align-items:center}
@@ -302,6 +303,7 @@ const SCALE_MAX = 5;
 
 const $ = s => document.querySelector(s);
 const num = v => { const n = parseFloat(v); return isNaN(n)?null:n; };
+const isUntagged = r => (r.status||'new')==='new';   // untagged = never triaged (default status)
 const esc = s => (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function heat(s){
   if(s==null) return {bg:'var(--bg3)',bd:'var(--line)',fg:'var(--ink-faint)'};
@@ -374,8 +376,9 @@ function toast(html, cls, sticky){ const t=$('#toast'); t.className=cls||''; t.i
 // ── filters / list ──
 function uniq(key){ return [...new Set(DATA.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function buildFilters(){
-  const counts = {all:DATA.length}; PIPE.forEach(s=>counts[s]=DATA.filter(r=>r.status===s).length);
-  const segs = [['all','All'],['interested','★ Interested'],['applied','✓ Applied'],['interview','◇ Interview'],['offer','◆ Offer']];
+  const counts = {all:DATA.length, new:DATA.filter(r=>isUntagged(r)).length};
+  PIPE.forEach(s=>counts[s]=DATA.filter(r=>r.status===s).length);
+  const segs = [['all','All'],['new','◦ New'],['interested','★ Interested'],['applied','✓ Applied'],['interview','◇ Interview'],['offer','◆ Offer']];
   $('#seg').innerHTML = segs.map(([s,l])=>`<button data-s="${s}" class="${state.stage===s?'on':''}">${l}<span class="n">${counts[s]||0}</span></button>`).join('');
   $('#seg').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.stage=b.dataset.s;render()});
   fill('#company', uniq('company'), 'All companies'); fill('#source', uniq('source'), 'All sources');
@@ -385,7 +388,8 @@ function fill(sel,vals,all){ const e=$(sel), cur=e.value;
 
 function filtered(){
   let rows = DATA.filter(r=>{
-    if(state.stage!=='all' && r.status!==state.stage) return false;
+    if(state.stage==='new'){ if(!isUntagged(r)) return false; }   // untagged only (hides tagged + stale)
+    else if(state.stage!=='all' && r.status!==state.stage) return false;
     if(state.stage==='all' && r.status==='stale' && !state.q && !state.company) return false;
     if(state.company && r.company!==state.company) return false;
     if(state.source && r.source!==state.source) return false;
