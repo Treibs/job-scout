@@ -206,6 +206,14 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .dd li{position:relative;padding-left:26px;color:#d3d6dd;font-size:14.5px;line-height:1.5}
   .dd li::before{content:'›';position:absolute;left:5px;top:-1px;color:var(--amber);font-family:var(--mono);font-weight:700;font-size:17px}
   .rat{color:var(--ink-dim);font-size:14.5px;line-height:1.7;white-space:pre-wrap}
+  details.col{margin-top:24px}
+  details.col>summary{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--ink-faint);cursor:pointer;list-style:none;display:flex;align-items:center;gap:9px;user-select:none}
+  details.col>summary::-webkit-details-marker{display:none}
+  details.col>summary::before{content:'▸';color:var(--amber);transition:transform .15s;font-size:13px}
+  details.col[open]>summary::before{transform:rotate(90deg)}
+  details.col>summary:hover{color:var(--ink-dim)}
+  details.col .rat,details.col .flags{margin-top:13px}
   .flags{display:flex;gap:8px;flex-wrap:wrap}
   .flag{font-size:12.5px;color:#e8a59a;background:rgba(232,115,107,.08);border:1px solid rgba(232,115,107,.2);border-radius:7px;padding:4px 11px}
   textarea.notes{width:100%;min-height:120px;background:var(--bg2);border:1px solid var(--line2);border-radius:11px;
@@ -416,8 +424,8 @@ function renderDetail(){
     ${dd.length?`<div class="sect"><div class="slabel">Day to day</div><ul class="dd">${dd.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:''}
     ${num(r.mission)!=null||num(r.score)!=null?`<div class="sect"><div class="slabel">Fit by dimension</div><div class="dims">${dims}</div></div>`:''}
     ${r.comp_estimate?`<div class="sect"><div class="slabel">Compensation</div><div class="comp">${esc(r.comp_estimate)}</div></div>`:''}
-    ${r.rationale?`<div class="sect"><div class="slabel">Why this scored</div><div class="rat">${esc(r.rationale)}</div></div>`:''}
-    ${flags.length?`<div class="sect"><div class="slabel">Red flags</div><div class="flags">${flags.map(f=>`<span class="flag">${esc(f)}</span>`).join('')}</div></div>`:''}
+    ${r.rationale?`<details class="col"><summary>Why this scored</summary><div class="rat">${esc(r.rationale)}</div></details>`:''}
+    ${flags.length?`<details class="col"><summary>Red flags (${flags.length})</summary><div class="flags">${flags.map(f=>`<span class="flag">${esc(f)}</span>`).join('')}</div></details>`:''}
     <div class="sect"><div class="slabel">Your notes</div>
       <textarea class="notes" id="notes" placeholder="referred by… · follow up on… · recruiter name… · why you like it">${esc(r.notes)}</textarea>
       <div class="notehint" id="notehint">${SERVED?'autosaves':'saved locally (run the server to persist to the tracker)'}</div>
