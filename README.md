@@ -314,6 +314,17 @@ Built to be ToS-defensible, ban-resistant, and respectful.
 
 ---
 
+## Acknowledgments
+
+- [JobSpy](https://github.com/cullenwatson/JobSpy) — multi-board scraping engine
+  behind the Indeed/LinkedIn sources.
+- [linkedin-network-mcp](https://github.com/0xLT/linkedin-network-mcp) — inspired
+  the [connections overlay](#who-you-know-linkedin-connections-overlay)'s local,
+  export-based (no-scraping) approach. Pair it with job-scout for ad-hoc network
+  queries over the same LinkedIn export.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Dependencies carry their own licenses, notably

@@ -14,6 +14,10 @@ Matching is a *signal, not a claim*: company names are normalized (Inc./LLC/etc.
 stripped) and then fuzzy-matched, so "Caterpillar Inc." finds "Caterpillar". A
 person may have since left, so we surface their title + when you connected and let
 you judge. Nothing here phones home.
+
+Credit: the local, export-based (no-scraping) approach is inspired by
+linkedin-network-mcp (https://github.com/0xLT/linkedin-network-mcp), which exposes
+the same LinkedIn export over MCP for ad-hoc network queries.
 """
 
 from __future__ import annotations
