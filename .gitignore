@@ -24,6 +24,11 @@ state/*.local
 # ── CSV tracker output — personal job data, keep local (never commit) ─────────
 output/
 
+# ── screenshots / images — never commit (can capture personal desktop data) ───
+*.png
+*.jpg
+*.jpeg
+
 # ── runtime dedup state — kept LOCAL for the Kitsune cron deployment (this disk
 #    persists between runs, unlike CI). Holds personal job history; don't commit.
 state/seen_hashes.json
