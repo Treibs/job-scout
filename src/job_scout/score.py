@@ -333,6 +333,10 @@ def _apply_score(job: Job, result: dict | None, dimensions, scale_lo, scale_hi) 
     rf = result.get("red_flags")
     job.red_flags = rf if isinstance(rf, list) else ([] if rf in (None, "") else [str(rf)])
     job.comp_estimate = result.get("comp_estimate")
+    dd = result.get("day_to_day")
+    job.day_to_day = [str(x).strip() for x in dd if str(x).strip()] if isinstance(dd, list) else None
+    cb = result.get("company_blurb")
+    job.company_blurb = str(cb).strip() if cb else None
 
 
 def _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job) -> dict | None:
@@ -375,21 +379,30 @@ def _build_prompts(dimensions, scale_lo, scale_hi, resume, job) -> tuple[str, st
 
     system_prompt = (
         "You are a precise job-fit evaluator. Score how well a single job listing "
-        "fits a candidate, using ONLY the candidate's resume and the job description "
-        "provided — never outside knowledge or assumptions.\n\n"
+        "fits a candidate. Score the fit using ONLY the candidate's resume and the "
+        "job description — never outside knowledge or assumptions (the one exception: "
+        "`company_blurb` may draw on general knowledge of the company).\n\n"
         f"Score EACH of these dimensions on an integer scale of {scale_lo} to {scale_hi} "
         f"(where {scale_lo} = no fit, {scale_hi} = perfect fit):\n"
         f"{dim_lines}\n\n"
         "Cite concrete evidence from the job description in `rationale`. List concerns "
         "(vague comp, location mismatch, seniority mismatch, red-flag language) in "
         "`red_flags`. Estimate compensation in `comp_estimate` from any signals in the "
-        "listing, or \"unknown\" if there are none.\n\n"
+        "listing, or \"unknown\" if there are none.\n"
+        "In `day_to_day`, distill what this person would actually DO day-to-day into "
+        "3-6 short, concrete bullets drawn from the listing's responsibilities (verb-led, "
+        "e.g. \"Lead the AI roadmap with business unit leaders\"). Empty list if the "
+        "listing gives no detail.\n"
+        "In `company_blurb`, give 1-2 plain sentences on what the company does / its "
+        "industry and size — from the listing or your general knowledge.\n\n"
         "Respond with STRICT JSON ONLY — no markdown, no prose, no code fences. Schema:\n"
         "{\n"
         f'  "dimension_scores": {{{dim_ids}}},  // each an integer {scale_lo}-{scale_hi}\n'
         '  "rationale": "string citing JD evidence",\n'
         '  "red_flags": ["string", ...],\n'
-        '  "comp_estimate": "string"\n'
+        '  "comp_estimate": "string",\n'
+        '  "day_to_day": ["string", ...],\n'
+        '  "company_blurb": "string"\n'
         "}"
     )
 

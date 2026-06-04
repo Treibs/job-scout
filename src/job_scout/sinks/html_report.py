@@ -201,6 +201,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .dim .bar{width:90px;height:6px;border-radius:3px;background:var(--bg3);overflow:hidden}
   .dim .bar i{display:block;height:100%;background:var(--amber);border-radius:3px}
   .comp{font-family:var(--mono);color:var(--teal);font-size:14px}
+  .blurb{color:var(--ink-dim);font-size:14.5px;line-height:1.65}
+  .dd{list-style:none;display:flex;flex-direction:column;gap:10px}
+  .dd li{position:relative;padding-left:26px;color:#d3d6dd;font-size:14.5px;line-height:1.5}
+  .dd li::before{content:'›';position:absolute;left:5px;top:-1px;color:var(--amber);font-family:var(--mono);font-weight:700;font-size:17px}
   .rat{color:var(--ink-dim);font-size:14.5px;line-height:1.7;white-space:pre-wrap}
   .flags{display:flex;gap:8px;flex-wrap:wrap}
   .flag{font-size:12.5px;color:#e8a59a;background:rgba(232,115,107,.08);border:1px solid rgba(232,115,107,.2);border-radius:7px;padding:4px 11px}
@@ -391,6 +395,7 @@ function renderDetail(){
   const s=num(r.score), h=heat(s);
   const dims = DIMS.map(([k,l])=>{ const v=num(r[k]); return `<div class="dim"><span class="dl">${l}</span><span class="bar"><i style="width:${v==null?0:Math.round(100*v/SCALE_MAX)}%"></i></span></div>`;}).join('');
   const flags=(r.red_flags||'').split(',').map(x=>x.trim()).filter(Boolean);
+  const dd=(r.day_to_day||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const exits = [['pass','✕ Pass'],['archived','⌫ Archive']];
   d.innerHTML = `
     <div class="dhead">
@@ -401,12 +406,14 @@ function renderDetail(){
         ${r.apply_url?`<a class="open" href="${esc(r.apply_url)}" target="_blank" rel="noopener">Open posting ↗</a>`:''}
       </div>
     </div>
+    ${r.company_blurb?`<div class="sect"><div class="slabel">About ${esc(r.company)}</div><div class="blurb">${esc(r.company_blurb)}</div></div>`:''}
     <div class="sect"><div class="slabel">Pipeline</div>
       <div class="pipe">
         ${PIPE.map(p=>`<button class="stage ${r.status===p?'on':''}" data-s="${p}">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}
         ${exits.map(([s2,l])=>`<button class="stage exit ${r.status===s2?'on':''}" data-s="${s2}">${l}</button>`).join('')}
       </div>${r.applied_on?`<div class="appdate">Applied ${esc(r.applied_on)}</div>`:''}
     </div>
+    ${dd.length?`<div class="sect"><div class="slabel">Day to day</div><ul class="dd">${dd.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:''}
     ${num(r.mission)!=null||num(r.score)!=null?`<div class="sect"><div class="slabel">Fit by dimension</div><div class="dims">${dims}</div></div>`:''}
     ${r.comp_estimate?`<div class="sect"><div class="slabel">Compensation</div><div class="comp">${esc(r.comp_estimate)}</div></div>`:''}
     ${r.rationale?`<div class="sect"><div class="slabel">Why this scored</div><div class="rat">${esc(r.rationale)}</div></div>`:''}

@@ -65,6 +65,8 @@ class Job:
     rationale: str | None = None
     red_flags: list[str] | None = None
     comp_estimate: str | None = None
+    day_to_day: list[str] | None = None  # distilled day-to-day responsibilities
+    company_blurb: str | None = None  # 1-2 sentences on what the company does
 
     # ── tracker metadata (sinks / state) ────────────────────────────────
     status: str = STATUS_NEW
@@ -107,6 +109,8 @@ SHEET_COLUMNS: list[str] = [
     "status",
     "rationale",
     "red_flags",
+    "day_to_day",
+    "company_blurb",
     "notes",
     "applied_on",
 ]
@@ -155,6 +159,8 @@ def job_to_row(job: "Job") -> list:
         "status": job.status,
         "rationale": job.rationale,
         "red_flags": ", ".join(job.red_flags) if job.red_flags else "",
+        "day_to_day": "\n".join(job.day_to_day) if job.day_to_day else "",
+        "company_blurb": job.company_blurb,
         "notes": job.notes,
         "applied_on": job.applied_on,
     }
