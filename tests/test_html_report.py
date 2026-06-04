@@ -65,6 +65,27 @@ def test_render_strips_dangerous_url_schemes(tmp_path):
     assert data["Good"] == "https://boards.greenhouse.io/x/jobs/1"
 
 
+def test_interest_buttons_dont_inline_url_in_onclick(tmp_path):
+    """A crafted apply_url must not break out of an onclick JS literal (XSS).
+
+    esc() doesn't escape single quotes, so the buttons must read the URL from the
+    card's data-url (dataset.url), never inline it into the handler string.
+    """
+    csv_path = tmp_path / "jobs.csv"
+    evil = "https://e/');alert(document.cookie);//"
+    _write_csv(csv_path, [
+        {"score": "70", "title": "X", "company": "Y", "status": "new", "apply_url": evil},
+    ])
+    html = html_report.render(csv_path).read_text(encoding="utf-8")
+    # The URL must never be inlined as a JS string literal in an onclick handler;
+    # the buttons must read it from the (HTML-escaped) data-url attribute instead.
+    assert "setStatus(event,this,'" not in html  # no inline-URL literal argument
+    assert "dataset.url" in html
+    # The payload may appear inertly in the embedded JSON / data-url attribute, but
+    # never in an executable position — confirm it's not opening a setStatus call.
+    assert "alert(document.cookie)" not in html.split("const DATA")[0]
+
+
 def test_render_escapes_script_break(tmp_path):
     """A rationale containing </script> must not break the embedded data block."""
     csv_path = tmp_path / "jobs.csv"

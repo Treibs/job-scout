@@ -376,10 +376,13 @@ function card(r,i){
     : '<span class="title">'+esc(r.title)+'</span>';
   const when = r.first_seen ? 'first seen '+esc(r.first_seen) : '';
   const au = esc(r.apply_url||'');
+  // URL is read from the card's HTML-escaped data-url at click time (dataset.url),
+  // never inlined into this JS string literal — esc() doesn't escape single quotes,
+  // so inlining a crafted apply_url could break out of the handler (XSS).
   const acts = au ? '<div class="acts">'
-    +   '<button class="act interested" onclick="setStatus(event,this,\''+au+'\',\'interested\')">★ Interested</button>'
-    +   '<button class="act applied" onclick="setStatus(event,this,\''+au+'\',\'applied\')">✓ Applied</button>'
-    +   '<button class="act pass" onclick="setStatus(event,this,\''+au+'\',\'pass\')">✕ Pass</button>'
+    +   '<button class="act interested" onclick="setStatus(event,this,this.closest(\'.card\').dataset.url,\'interested\')">★ Interested</button>'
+    +   '<button class="act applied" onclick="setStatus(event,this,this.closest(\'.card\').dataset.url,\'applied\')">✓ Applied</button>'
+    +   '<button class="act pass" onclick="setStatus(event,this,this.closest(\'.card\').dataset.url,\'pass\')">✕ Pass</button>'
     + '</div>' : '';
   return '<article class="card'+(stale?' stale':'')+'" data-url="'+au+'" style="animation-delay:'+Math.min(i*22,400)+'ms" onclick="this.classList.toggle(\'open\')">'
     + '<div class="score" style="background:'+h.bg+';border-color:'+h.bd+';color:'+h.fg+'">'
