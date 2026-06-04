@@ -32,67 +32,17 @@ DESC_FETCH CHOICE:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Any
 
-import requests
+from . import _common
 
 log = logging.getLogger("job_scout.sources.smartrecruiters")
 
 NAME = "smartrecruiters"
 _BASE = "https://api.smartrecruiters.com/v1/companies"
 _JOBS_HOST = "https://jobs.smartrecruiters.com"
-_TIMEOUT = 15
 _LIST_LIMIT = 100
 _DETAIL_CAP = 30  # max per-posting detail fetches per company per run
-_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
-
-
-def _get(url: str, params: dict | None = None) -> requests.Response | None:
-    """GET with one light retry. Returns the response or None on hard failure."""
-    headers = {"User-Agent": _UA, "Accept": "application/json"}
-    last_exc: Exception | None = None
-    for attempt in range(2):  # original + one retry
-        try:
-            resp = requests.get(url, params=params, headers=headers, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp
-        except Exception as e:  # noqa: BLE001 — sources are untrusted; isolate
-            last_exc = e
-    log.warning("smartrecruiters GET failed (%s): %s", url, last_exc)
-    return None
-
-
-def _parse_iso(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    s = value.strip()
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(s)
-    except ValueError:
-        try:
-            dt = datetime.fromisoformat(s[:10])
-        except ValueError:
-            return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _is_fresh(date_posted: Any, freshness_hours: int | None) -> bool:
-    """True if within the freshness window. Missing/unparseable date -> keep."""
-    if not freshness_hours or freshness_hours <= 0:
-        return True
-    dt = _parse_iso(date_posted)
-    if dt is None:
-        return True
-    age_h = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
-    return age_h <= freshness_hours
 
 
 def _location(posting: dict) -> str | None:
@@ -120,7 +70,7 @@ def _url(posting: dict, slug: str, pid: str) -> str | None:
 def _description_from_detail(slug: str, pid: str) -> str | None:
     """Fetch the posting detail and flatten jobAd sections to plain text.
     Returns None on any failure."""
-    resp = _get(f"{_BASE}/{slug}/postings/{pid}")
+    resp = _common.try_get(f"{_BASE}/{slug}/postings/{pid}", what="smartrecruiters detail")
     if resp is None:
         return None
     try:
@@ -167,7 +117,8 @@ def fetch(company: Any, config: Any) -> list[dict]:
     company_name = getattr(company, "name", None) or slug
     freshness_hours = getattr(getattr(config, "search", None), "freshness_hours", None)
 
-    resp = _get(f"{_BASE}/{slug}/postings", params={"limit": _LIST_LIMIT})
+    resp = _common.try_get(f"{_BASE}/{slug}/postings", params={"limit": _LIST_LIMIT},
+                           what="smartrecruiters list")
     if resp is None:
         return []
 
@@ -193,7 +144,7 @@ def fetch(company: Any, config: Any) -> list[dict]:
             continue
 
         date_posted = posting.get("releasedDate")
-        if not _is_fresh(date_posted, freshness_hours):
+        if not _common.is_fresh(date_posted, freshness_hours):
             continue
 
         url_out = _url(posting, slug, pid)

@@ -23,83 +23,15 @@ Field mapping (Ashby -> raw dict):
 
 from __future__ import annotations
 
-import html
 import logging
-import re
-from datetime import datetime, timezone
 from typing import Any
 
-import requests
+from . import _common
 
 log = logging.getLogger("job_scout.sources.ashby")
 
 NAME = "ashby"
 _BASE = "https://api.ashbyhq.com/posting-api/job-board"
-_TIMEOUT = 15
-_TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"[ \t\r\f\v]+")
-
-
-def _strip_html(raw: str | None) -> str | None:
-    """Flatten an HTML description to text (Ashby's descriptionHtml fallback)."""
-    if not raw:
-        return None
-    text = _WS_RE.sub(" ", _TAG_RE.sub(" ", html.unescape(raw)))
-    return re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip() or None
-_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
-
-
-def _post(url: str, payload: dict) -> requests.Response | None:
-    """POST with one light retry. Returns the response or None on hard failure."""
-    headers = {
-        "User-Agent": _UA,
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    last_exc: Exception | None = None
-    for attempt in range(2):  # original + one retry
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp
-        except Exception as e:  # noqa: BLE001 — sources are untrusted; isolate
-            last_exc = e
-    log.warning("ashby POST failed (%s): %s", url, last_exc)
-    return None
-
-
-def _parse_iso(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    s = value.strip()
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(s)
-    except ValueError:
-        # Fall back: date-only or unexpected — try the leading date portion.
-        try:
-            dt = datetime.fromisoformat(s[:10])
-        except ValueError:
-            return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _is_fresh(date_posted: Any, freshness_hours: int | None) -> bool:
-    """True if within the freshness window. Missing/unparseable date -> keep
-    (we don't drop records just because a date is absent)."""
-    if not freshness_hours or freshness_hours <= 0:
-        return True
-    dt = _parse_iso(date_posted)
-    if dt is None:
-        return True
-    age_h = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
-    return age_h <= freshness_hours
 
 
 def _location(job: dict) -> str | None:
@@ -162,7 +94,7 @@ def fetch(company: Any, config: Any) -> list[dict]:
     freshness_hours = getattr(getattr(config, "search", None), "freshness_hours", None)
 
     url = f"{_BASE}/{slug}"
-    resp = _post(url, {"includeCompensation": True})
+    resp = _common.try_post(url, {"includeCompensation": True}, what="ashby POST")
     if resp is None:
         return []
 
@@ -186,14 +118,14 @@ def fetch(company: Any, config: Any) -> list[dict]:
             continue  # skip half-records (contract: don't emit incomplete)
 
         date_posted = job.get("publishedAt") or job.get("updatedAt")
-        if not _is_fresh(date_posted, freshness_hours):
+        if not _common.is_fresh(date_posted, freshness_hours):
             continue
 
         # Prefer the plain field; if only HTML is present, flatten it to text so
         # downstream scoring/CSV never gets raw markup (matches the other ATSes).
         description = job.get("descriptionPlain")
         if not isinstance(description, str) or not description.strip():
-            description = _strip_html(job.get("descriptionHtml"))
+            description = _common.strip_html(job.get("descriptionHtml"))
         is_remote = job.get("isRemote")
 
         rows.append(

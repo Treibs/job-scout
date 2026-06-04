@@ -20,34 +20,15 @@ retry. On any error we return [] (the pipeline isolates per-company too).
 
 from __future__ import annotations
 
-import html
 import logging
-import re
 from datetime import datetime, timezone
 
-import requests
+from . import _common
 
 log = logging.getLogger("job_scout.sources.ats.lever")
 
 SOURCE = "lever"
 _BASE = "https://api.lever.co/v0/postings/{slug}"
-_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
-_TIMEOUT = 15
-_TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"[ \t\r\f\v]+")
-
-
-def _strip_html(raw: str | None) -> str | None:
-    if not raw:
-        return None
-    text = html.unescape(raw)
-    text = _TAG_RE.sub(" ", text)
-    text = _WS_RE.sub(" ", text)
-    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
-    return text.strip() or None
 
 
 def _epoch_ms_to_iso(value) -> str | None:
@@ -74,32 +55,10 @@ def _is_remote(workplace_type, location: str | None) -> bool | None:
     if isinstance(workplace_type, str) and workplace_type.strip().lower() == "remote":
         return True
     if location:
-        return bool(re.search(r"\bremote\b", location, re.I))  # \b avoids "Claremont" etc.
+        return _common.is_remote_text(location)
     if workplace_type is not None:
         return False
     return None
-
-
-def _get(url: str, params: dict) -> requests.Response:
-    """Single GET with one light retry/backoff on transient failures."""
-    headers = {"User-Agent": _UA, "Accept": "application/json"}
-    last_exc: Exception | None = None
-    for attempt in range(2):  # at most one retry
-        try:
-            resp = requests.get(url, params=params, headers=headers, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp
-        except requests.RequestException as e:
-            last_exc = e
-            if attempt == 0:
-                try:
-                    import time
-
-                    time.sleep(1.0)  # light backoff
-                except Exception:  # noqa: BLE001
-                    pass
-    assert last_exc is not None
-    raise last_exc
 
 
 def fetch(company, config) -> list[dict]:
@@ -110,7 +69,7 @@ def fetch(company, config) -> list[dict]:
         return []
 
     try:
-        resp = _get(_BASE.format(slug=slug), {"mode": "json"})
+        resp = _common.get(_BASE.format(slug=slug), {"mode": "json"})
         data = resp.json()
     except Exception as e:  # noqa: BLE001 — never crash the run
         log.warning("lever fetch failed for %s: %s", slug, e)
@@ -143,7 +102,7 @@ def fetch(company, config) -> list[dict]:
         # descriptionPlain is already plain text; fall back to stripping HTML.
         description = post.get("descriptionPlain")
         if not description:
-            description = _strip_html(post.get("description"))
+            description = _common.strip_html(post.get("description"))
 
         rows.append(
             {
