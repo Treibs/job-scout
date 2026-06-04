@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Strategist CLI (adaptive-discovery Phase 3).
 
-Default run: digest the ledger + recent roles + résumé, ask the model for GUARDED
+Default run: digest the ledger + recent roles + resume, ask the model for GUARDED
 changes, auto-apply the keyword changes (to the strategist-owned
 config/discovery_additions.yaml), and print a JSON report. Company additions are
 *proposed* but NOT applied here — they need an ATS lookup, which the Kitsune cron

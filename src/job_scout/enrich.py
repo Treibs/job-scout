@@ -6,7 +6,7 @@ every role would get us rate-limited. So between dedupe and scoring we:
   1. take LinkedIn roles that have no description yet,
   2. serve any we've already fetched from the on-disk cache (so a role is fetched
      at most once, ever),
-  3. rank the rest by local résumé↔title embedding similarity (cheap, no API),
+  3. rank the rest by local resume↔title embedding similarity (cheap, no API),
   4. fetch full JDs for only the top ``linkedin_enrich_max`` (default 30), with a
      randomized delay between requests,
   5. cache them.
@@ -64,7 +64,7 @@ def _delay() -> None:
 
 
 def _rank_by_resume(jobs: list[Job], resume: str) -> list[Job]:
-    """Order jobs by descending résumé↔(title+company) similarity. Falls back to
+    """Order jobs by descending resume↔(title+company) similarity. Falls back to
     the original order if embeddings are unavailable or there's nothing to rank."""
     if not resume.strip() or len(jobs) <= 1:
         return jobs
@@ -84,7 +84,7 @@ def _rank_by_resume(jobs: list[Job], resume: str) -> list[Job]:
 
 
 def enrich_descriptions(jobs: list[Job], config, fetch_fn=None) -> list[Job]:
-    """Attach LinkedIn JDs to the most résumé-relevant undescribed roles (capped,
+    """Attach LinkedIn JDs to the most resume-relevant undescribed roles (capped,
     cached). ``fetch_fn`` is injectable for tests. Returns the same list, mutated."""
     boards = config.sources.boards
     if not getattr(boards, "linkedin_fetch_description", False):

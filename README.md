@@ -2,7 +2,7 @@
 
 A config-driven job **discovery, scoring, and self-tuning** engine. It pulls
 public job listings from multiple sources, cross-references each against *your*
-résumé, scores fit against *your* weighted criteria with an LLM, distills the
+resume, scores fit against *your* weighted criteria with an LLM, distills the
 day-to-day responsibilities + a company blurb, and writes a ranked, deduplicated
 tracker — a local **two-pane CRM dashboard** (CSV-backed) or Google Sheets — on a
 schedule and on demand. Over time it **learns from what you engage with and
@@ -16,7 +16,7 @@ re-tunes its own search**.
 > work. A human makes every apply decision. See [Ethics & ToS](#ethics--tos).
 
 There is **no personal data in this repo.** Everything user-specific lives in
-git-ignored config, résumé, and output files; the repo ships only `*.example`
+git-ignored config, resume, and output files; the repo ships only `*.example`
 templates.
 
 ---
@@ -25,13 +25,13 @@ templates.
 
 - **Multi-source discovery** — Indeed + LinkedIn boards, plus direct pulls from
   any company's official ATS feed (Greenhouse, Lever, Ashby, SmartRecruiters, Workday).
-- **LLM fit-scoring vs your résumé** — a weighted rubric (your dimensions), plus
+- **LLM fit-scoring vs your resume** — a weighted rubric (your dimensions), plus
   distilled **day-to-day responsibilities** and a **company blurb** per role.
 - **A two-pane CRM dashboard** — pipeline (Interested → Applied → Interview →
   Offer), notes, filters, and **add-from-link** (paste a job URL to scrape+score
   it, or a careers URL to watch a company).
 - **A feedback loop** — a *strategist* studies what scores well and what you mark
-  interested, then proposes new keywords/companies under a résumé-fit guardrail.
+  interested, then proposes new keywords/companies under a resume-fit guardrail.
 - **Local-first & private** — default sink is a local CSV + self-contained HTML.
   No cloud account required. Your data never leaves the machine.
 
@@ -51,7 +51,7 @@ flowchart LR
   B --> N["② Normalize<br/>→ one Job schema"]
   A --> N
   N --> D["③ Dedupe<br/>exact + fuzzy,<br/>across sources & runs"]
-  D --> E["④ Enrich<br/>LinkedIn JDs (top-N,<br/>résumé-ranked, cached)"]
+  D --> E["④ Enrich<br/>LinkedIn JDs (top-N,<br/>resume-ranked, cached)"]
   E --> HF
   subgraph SCORE["⑤ Score"]
     HF["Hard filters"] --> PF["Pre-filter<br/>(optional)"] --> LLM["LLM rubric<br/>+ day-to-day<br/>+ company blurb"]
@@ -69,7 +69,7 @@ flowchart LR
    plus a fuzzy `rapidfuzz` pass, across sources **and** across runs. Prefers the
    direct ATS/apply URL over the aggregator link.
 4. **Enrich** — LinkedIn only returns a description via a per-job request, so we
-   fetch full JDs for just the top-N most résumé-relevant LinkedIn roles (ranked by
+   fetch full JDs for just the top-N most resume-relevant LinkedIn roles (ranked by
    a local embedding), via the public guest endpoint, **cached forever** and paced.
 5. **Score** — a funnel (see [Scoring methodology](#scoring-methodology)).
 6. **Sinks** — upserts the tracker by apply-URL (re-runs never duplicate; vanished
@@ -86,7 +86,7 @@ flowchart LR
 | **Job boards** | Indeed, LinkedIn (via JobSpy) | Title, company, location, URL, posting date, description (Indeed) |
 | **ATS feeds** | Greenhouse / Lever / Ashby / SmartRecruiters / Workday public JSON | The company's own open roles, straight from the source (the lowest-risk path) |
 | **LinkedIn guest endpoint** | `…/jobs-guest/jobs/api/jobPosting/{id}` | Full JD for the top-N enriched roles (no auth, cached) |
-| **Your résumé** | `resume/resume.md` (git-ignored) | The text every role is scored against |
+| **Your resume** | `resume/resume.md` (git-ignored) | The text every role is scored against |
 | **Tracker** | `output/jobs.csv` (git-ignored) | One row per role — the canonical store the dashboard renders |
 | **Dashboard** | `output/jobs.html` (regenerated each run) | Self-contained two-pane CRM |
 | **Discovery ledger** | `state/discovery.json` (git-ignored) | Per-keyword/company performance over time |
@@ -113,7 +113,7 @@ only on what survives (so we never pay to score a role that's obviously wrong):
 2. **Pre-filter** (optional) — a local `sentence-transformers` embedding cuts
    obviously-irrelevant roles before paying for the LLM. Off by default.
 3. **LLM rubric** — each survivor is scored on **your** weighted dimensions, using
-   **only** the résumé + listing. One call per role, run **concurrently**. The same
+   **only** the resume + listing. One call per role, run **concurrently**. The same
    call returns:
    - per-dimension integer scores → a weighted **overall score (0–100)**,
    - a **rationale** citing JD evidence,
@@ -176,20 +176,20 @@ The search isn't static. It learns from two signals — **what scores well** and
 
 ```mermaid
 flowchart TD
-  SCAN["Daily scan"] --> SCORE["Score vs résumé"]
+  SCAN["Daily scan"] --> SCORE["Score vs resume"]
   SCORE --> DASH["Two-pane CRM"]
   DASH -->|"you mark Interested / Applied + notes"| SIG["Interest signal"]
   SCORE --> LED[("Ledger<br/>per-keyword & per-company yield")]
   SIG --> LED
-  RESUME["Your résumé"] --> STRAT
+  RESUME["Your resume"] --> STRAT
   LED --> STRAT["Strategist · every 3 days"]
-  STRAT -->|"GUARDRAIL: résumé-tied reason + relevance ≥ 0.7"| ADD[("discovery_additions.yaml")]
+  STRAT -->|"GUARDRAIL: resume-tied reason + relevance ≥ 0.7"| ADD[("discovery_additions.yaml")]
   ADD -->|merged at load| SCAN
 ```
 
 The **strategist** digests the ledger, your recent high-scorers, your interest
-hits, and your résumé, then proposes new keywords and companies — under a hard
-guardrail: **every addition needs a résumé-tied reason and a relevance ≥ 0.7**;
+hits, and your resume, then proposes new keywords and companies — under a hard
+guardrail: **every addition needs a resume-tied reason and a relevance ≥ 0.7**;
 adjacent bends only with strong justification. It also resolves a proposed
 company's ATS before adding it.
 
@@ -216,13 +216,13 @@ files; copy them to the real (git-ignored) names and edit.
 | [`config/scoring.yaml`](config/scoring.example.yaml) | Rubric `dimensions` (`id`, `weight`, `prompt`), `scale`, `role_fit_gate`, the `model`, the embedding `pre_filter`. |
 | [`config/sources.yaml`](config/sources.example.yaml) | Sources on/off: `boards` (`sites`, `proxies`, `linkedin_fetch_description`, `linkedin_enrich_max`) and `ats`. |
 | `config/discovery_additions.yaml` | **Machine-managed** by the strategist. Not committed; safe to delete to reset. |
-| [`resume/resume.md`](resume/resume.example.md) | Plain-markdown résumé the scorer compares each listing against. |
+| [`resume/resume.md`](resume/resume.example.md) | Plain-markdown resume the scorer compares each listing against. |
 
 ---
 
 ## Quickstart
 
-The default CSV + dashboard sink needs **no cloud account** — just a résumé and an
+The default CSV + dashboard sink needs **no cloud account** — just a resume and an
 LLM key.
 
 ```bash
@@ -231,7 +231,7 @@ cd job-scout
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 
-# copy templates (real names are git-ignored), then edit them + paste your résumé
+# copy templates (real names are git-ignored), then edit them + paste your resume
 for f in search companies scoring sources; do cp config/$f.example.yaml config/$f.yaml; done
 cp resume/resume.example.md resume/resume.md
 cp .env.example .env            # set ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL if using a compatible endpoint)
@@ -268,7 +268,7 @@ Respectful scraping is ban-resistant scraping.
 | `scripts/run.py` | The pipeline (gather → score → write tracker + dashboard + ledger). |
 | `scripts/serve.py` | Localhost CRM server — persist status/notes, scrape a job link, watch a company. |
 | `scripts/report.py` | Regenerate `output/jobs.html` from the CSV on demand. |
-| `scripts/strategist.py` | Digest the ledger + résumé → propose & apply guarded search changes. |
+| `scripts/strategist.py` | Digest the ledger + resume → propose & apply guarded search changes. |
 | `scripts/setup_sheet.py` | One-time Google Sheet header init (Sheets sink only). |
 
 Run tests with `pytest`.
