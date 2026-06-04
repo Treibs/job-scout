@@ -32,6 +32,8 @@ templates.
   it, or a careers URL to watch a company).
 - **A feedback loop** — a *strategist* studies what scores well and what you mark
   interested, then proposes new keywords/companies under a resume-fit guardrail.
+- **Warm-intro overlay** — optionally drop in your LinkedIn connections export to
+  see **who you know at each company** (a `🤝` chip, a filter, and a per-role list).
 - **Local-first & private** — default sink is a local CSV + self-contained HTML.
   No cloud account required. Your data never leaves the machine.
 
@@ -166,6 +168,25 @@ flowchart LR
   read-only viewer with a `localStorage` fallback. Stdlib-only, loopback-only.
 
 Regenerate the static file any time with `python scripts/report.py`.
+
+### Who you know (LinkedIn connections overlay)
+
+Optional, local, and read-only: surface **which of your LinkedIn connections are
+at each company** so you can find a warm intro instead of cold-applying.
+
+1. LinkedIn → **Settings → Data privacy → Get a copy of your data → Connections**.
+2. Drop the unzipped `Connections.csv` at **`data/linkedin_connections.csv`**.
+
+The dashboard then shows, per role: a **`🤝 N`** chip on the card, a **"Know
+someone"** filter, and an **"In your network"** panel listing each person (name ·
+title · when you connected). Company names are normalized and fuzzy-matched, so
+"Caterpillar Inc." finds "Caterpillar" — treat it as a *signal*, not proof (a
+contact may have moved on). The file is **git-ignored personal data and never
+leaves your machine**; with no file present the overlay simply doesn't appear.
+
+> For ad-hoc network questions (dormant ties, relationship summaries) from your
+> export, the [linkedin-network-mcp](https://github.com/0xLT/linkedin-network-mcp)
+> MCP server pairs well — same local, export-based, no-scraping approach.
 
 ---
 
