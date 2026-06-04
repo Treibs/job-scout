@@ -37,7 +37,7 @@ output/
 .cap_full.png
 .cap_hero.png
 
-# ── runtime dedup state — kept LOCAL for the Kitsune cron deployment (this disk
+# ── runtime dedup state — kept LOCAL on the always-on scheduler host (the disk
 #    persists between runs, unlike CI). Holds personal job history; don't commit.
 state/seen_hashes.json
 state/snapshot.sqlite

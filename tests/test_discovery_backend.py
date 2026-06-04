@@ -27,7 +27,7 @@ def _cfg(keywords=None, companies=None, exclude=None):
 def _write_cfg_dir(tmp_path):
     (tmp_path / "search.yaml").write_text(yaml.safe_dump({"keywords": ["AI Strategy"]}))
     (tmp_path / "companies.yaml").write_text(yaml.safe_dump(
-        {"companies": [{"name": "Caterpillar", "ats": "greenhouse", "slug": "cat"}]}))
+        {"companies": [{"name": "Globex", "ats": "greenhouse", "slug": "globex"}]}))
     return tmp_path
 
 
@@ -35,14 +35,14 @@ def test_merge_additions_appends_and_dedups(tmp_path):
     _write_cfg_dir(tmp_path)
     (tmp_path / "discovery_additions.yaml").write_text(yaml.safe_dump({
         "keywords": ["AI Strategy", "Chief AI Officer"],  # first is a dup
-        "companies": [{"name": "U.S. Bank", "ats": "workday", "tenant": "usbank",
+        "companies": [{"name": "Northwind Bank", "ats": "workday", "tenant": "northwind",
                        "site": "careers", "datacenter": "wd1"}],
-        "exclude_companies": ["optum"],
+        "exclude_companies": ["acmehealth"],
     }))
     cfg = load_config(tmp_path / "search.yaml", tmp_path / "none.md")
     assert cfg.search.keywords == ["AI Strategy", "Chief AI Officer"]  # dup collapsed
-    assert {c.name for c in cfg.companies.companies} == {"Caterpillar", "U.S. Bank"}
-    assert "optum" in cfg.search.hard_filters.exclude_companies
+    assert {c.name for c in cfg.companies.companies} == {"Globex", "Northwind Bank"}
+    assert "acmehealth" in cfg.search.hard_filters.exclude_companies
 
 
 def test_merge_missing_file_is_noop(tmp_path):
@@ -55,18 +55,18 @@ def test_merge_missing_file_is_noop(tmp_path):
 def test_ledger_records_yield_and_interest(tmp_path, monkeypatch):
     monkeypatch.setattr(ledger, "_LEDGER_PATH", tmp_path / "discovery.json")
     cfg = _cfg(keywords=["AI Strategy"],
-               companies=[CompanyTarget(name="Caterpillar", ats="greenhouse", slug="cat")])
+               companies=[CompanyTarget(name="Globex", ats="greenhouse", slug="globex")])
     jobs = [
-        Job(id="1", title="Director AI", company="Caterpillar", url="u1",
+        Job(id="1", title="Director AI", company="Globex", url="u1",
             source="linkedin", search_term="AI Strategy", score=72.0),
-        Job(id="2", title="Mgr AI", company="Caterpillar", url="u2",
+        Job(id="2", title="Mgr AI", company="Globex", url="u2",
             source="indeed", search_term="AI Strategy", score=40.0),
     ]
-    led = ledger.record(jobs, cfg, interest_by_company={"Caterpillar": {"interested": 2, "applied": 1}})
+    led = ledger.record(jobs, cfg, interest_by_company={"Globex": {"interested": 2, "applied": 1}})
     assert led["runs"] == 1
     kw = led["keywords"]["AI Strategy"]
     assert kw["roles"] == 2 and kw["high"] == 1 and kw["max_score"] == 72.0
-    co = led["companies"]["Caterpillar"]
+    co = led["companies"]["Globex"]
     assert co["roles"] == 2 and co["high"] == 1
     assert co["interested"] == 2 and co["applied"] == 1
     # second run accumulates
@@ -79,14 +79,14 @@ def test_strategist_apply_writes_additions(tmp_path):
     strategist.apply_changes(
         tmp_path,
         add_keywords=["Chief AI Officer", "Head of Innovation"],
-        add_companies=[{"name": "U.S. Bank", "ats": "workday", "tenant": "usbank",
+        add_companies=[{"name": "Northwind Bank", "ats": "workday", "tenant": "northwind",
                         "site": "careers", "datacenter": "wd1"}],
-        add_exclude=["optum"], notes="test run",
+        add_exclude=["acmehealth"], notes="test run",
     )
     data = yaml.safe_load((tmp_path / "discovery_additions.yaml").read_text())
     assert "Chief AI Officer" in data["keywords"]
-    assert data["companies"][0]["name"] == "U.S. Bank"
-    assert "optum" in data["exclude_companies"]
+    assert data["companies"][0]["name"] == "Northwind Bank"
+    assert "acmehealth" in data["exclude_companies"]
     # re-apply dedups and can prune its own keyword
     strategist.apply_changes(tmp_path, add_keywords=["Chief AI Officer"],
                              remove_keywords=["Head of Innovation"])
@@ -101,7 +101,7 @@ def test_strategist_propose_filters_by_relevance():
                 {"keyword": "Chief AI Officer", "fit_reason": "fits exec AI goal", "relevance": 0.9},
                 {"keyword": "Barista", "fit_reason": "weak", "relevance": 0.2},
             ],
-            "add_companies": [{"name": "U.S. Bank", "sector": "banking",
+            "add_companies": [{"name": "Northwind Bank", "sector": "banking",
                                "fit_reason": "Chicago bank, AI leadership", "relevance": 0.85}],
             "remove_keywords": ["Dead Keyword"],
             "notes": "leaning into banking + exec AI titles",
@@ -114,7 +114,7 @@ def test_strategist_propose_filters_by_relevance():
                              FakeClient(), "MiniMax-M2.5-highspeed")
     kws = [k["keyword"] for k in out["add_keywords"]]
     assert kws == ["Chief AI Officer"]          # low-relevance "Barista" dropped
-    assert out["add_companies"][0]["name"] == "U.S. Bank"
+    assert out["add_companies"][0]["name"] == "Northwind Bank"
     assert out["remove_keywords"] == ["Dead Keyword"]
 
 
@@ -122,19 +122,19 @@ def test_strategist_guard_drops_tracked_and_protects_core():
     """The guard must not re-add tracked items, and must never remove core keywords."""
     digest = {
         "current_keywords": ["AI Strategy"],
-        "current_companies": ["Caterpillar"],
+        "current_companies": ["Globex"],
         "excluded_companies": ["google"],
     }
     raw = {
         "add_keywords": [{"keyword": "AI Strategy", "relevance": 0.9},   # already tracked
                          {"keyword": "AI Governance", "relevance": 0.9}],  # new
-        "add_companies": [{"name": "Caterpillar", "relevance": 0.9},      # already tracked
+        "add_companies": [{"name": "Globex", "relevance": 0.9},      # already tracked
                           {"name": "Google", "relevance": 0.9},           # excluded
-                          {"name": "U.S. Bank", "relevance": 0.9}],       # new
+                          {"name": "Northwind Bank", "relevance": 0.9}],       # new
         "remove_keywords": ["AI Strategy", "Old Experiment"],            # 1st is core
         "notes": "",
     }
     out = strategist._guard(strategist._filter(raw, 0.7), digest)
     assert [k["keyword"] for k in out["add_keywords"]] == ["AI Governance"]
-    assert [c["name"] for c in out["add_companies"]] == ["U.S. Bank"]
+    assert [c["name"] for c in out["add_companies"]] == ["Northwind Bank"]
     assert out["remove_keywords"] == ["Old Experiment"]  # core "AI Strategy" protected

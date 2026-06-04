@@ -52,7 +52,7 @@ def test_search_cfg_types(config_dir):
     cfg = load_config(config_dir / "search.yaml")
     assert isinstance(cfg.search.keywords, list)
     assert "Director AI" in cfg.search.keywords
-    assert cfg.search.location.query == "Chicago, IL"
+    assert cfg.search.location.query == "City, ST"
     assert cfg.search.location.distance_miles == 50
     assert cfg.search.location.remote_policy == "include"
     assert cfg.search.freshness_hours == 72

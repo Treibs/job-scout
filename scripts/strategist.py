@@ -4,7 +4,7 @@
 Default run: digest the ledger + recent roles + resume, ask the model for GUARDED
 changes, auto-apply the keyword changes (to the strategist-owned
 config/discovery_additions.yaml), and print a JSON report. Company additions are
-*proposed* but NOT applied here — they need an ATS lookup, which the Kitsune cron
+*proposed* but NOT applied here — they need an ATS lookup, which the scheduled orchestrator
 does (with web tools) before calling `--add-companies`.
 
     python scripts/strategist.py                         # digest+propose+apply keywords

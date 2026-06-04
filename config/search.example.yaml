@@ -1,11 +1,19 @@
 # Copy to config/search.yaml (git-ignored) and edit for your search.
+
+# Sectors / company types / role families the self-tuning strategist must stay
+# within when it proposes new keywords and companies. Free text — be specific to
+# your goals. Leave empty to fall back to a generic resume-derived guardrail.
+target_sectors: >-
+  e.g. banking/insurance, manufacturing, consumer goods — <your metro> area,
+  AI/innovation leadership roles
+
 keywords:
   - "Director AI"
   - "Senior Manager AI"
   - "AI Adoption"
   - "AI Innovation"
 location:
-  query: "Chicago, IL"        # free text; sources interpret it
+  query: "City, ST"           # free text; sources interpret it (e.g. "Chicago, IL" or "Remote")
   distance_miles: 50
   remote_policy: "include"    # include | exclude | only
 seniority:                    # used by sources that support it + as a scoring gate

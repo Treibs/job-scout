@@ -26,7 +26,7 @@ def _embedded_data(html: str):
 def test_render_writes_selfcontained_html(tmp_path):
     csv_path = tmp_path / "jobs.csv"
     _write_csv(csv_path, [
-        {"score": "88.0", "title": "Director of AI", "company": "Caterpillar",
+        {"score": "88.0", "title": "Director of AI", "company": "Globex",
          "apply_url": "https://x/1", "status": "new", "rationale": "Strong fit"},
         {"score": "40.0", "title": "Sales Lead", "company": "Acme",
          "apply_url": "https://x/2", "status": "stale"},
