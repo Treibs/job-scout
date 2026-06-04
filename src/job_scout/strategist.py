@@ -95,14 +95,19 @@ def propose(digest_data: dict, resume_text: str, client, model: str,
         "Bending to an adjacent sector or title is allowed ONLY with a strong "
         "fit_reason. Favor companies similar to the productive ones and to where "
         "the candidate showed interest. Do NOT propose Big Tech, AI labs, major "
-        "consulting, or anything already excluded. Be selective — a few strong "
-        "additions beat many weak ones.\n"
+        "consulting, anything already excluded, or any company ALREADY in "
+        "current_companies (those are tracked — proposing them is wasted). Be "
+        "selective — a few strong additions beat many weak ones.\n"
+        "For removals: `remove_keywords` is ONLY for keywords that are NOT in "
+        "current_keywords (i.e. your own past experiments that aren't working). "
+        "NEVER put a current_keywords entry there — the user curated those. If a "
+        "core keyword underperforms, raise it as a suggestion in `notes` instead.\n"
         "Respond with STRICT JSON ONLY, no prose, no fences:\n"
         "{\n"
         '  "add_keywords": [{"keyword": str, "fit_reason": str, "relevance": number}],\n'
         '  "add_companies": [{"name": str, "sector": str, "fit_reason": str, "relevance": number}],\n'
-        '  "remove_keywords": [str],   // only previously-added experiments worth dropping\n'
-        '  "notes": str                // 1-3 sentences on your reasoning\n'
+        '  "remove_keywords": [str],   // ONLY non-core experiments; never current_keywords\n'
+        '  "notes": str                // reasoning + any suggestions about core keywords/companies\n'
         "}"
     )
     user = (
@@ -116,7 +121,24 @@ def propose(digest_data: dict, resume_text: str, client, model: str,
         messages=[{"role": "user", "content": user}],
     )
     parsed = _extract_json(_text(resp)) or {}
-    return _filter(parsed, threshold)
+    return _guard(_filter(parsed, threshold), digest_data)
+
+
+def _guard(result: dict, digest_data: dict) -> dict:
+    """Enforce in code what the prompt asks: don't re-add tracked keywords/companies,
+    and never remove a core (user-curated) keyword."""
+    cur_kw = {k.lower() for k in digest_data.get("current_keywords", [])}
+    cur_co = {c.lower() for c in digest_data.get("current_companies", [])}
+    excl = {c.lower() for c in digest_data.get("excluded_companies", [])}
+
+    result["add_keywords"] = [k for k in result["add_keywords"]
+                              if k.get("keyword", "").lower() not in cur_kw]
+    result["add_companies"] = [c for c in result["add_companies"]
+                               if c.get("name", "").lower() not in cur_co
+                               and c.get("name", "").lower() not in excl]
+    # Removals only apply to non-core (strategist-added) keywords.
+    result["remove_keywords"] = [k for k in result["remove_keywords"] if k.lower() not in cur_kw]
+    return result
 
 
 def _filter(parsed: dict, threshold: float) -> dict:
