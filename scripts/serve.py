@@ -52,13 +52,19 @@ def _read(csv_path):
 
 def _write(csv_path, rows):
     csv_path = pathlib.Path(csv_path)
+    # Write the union of the known schema and ANY columns already present in the
+    # file. This makes the server forward-compatible: an older server build can
+    # never silently drop columns a newer pipeline added (which once clobbered
+    # day_to_day/company_blurb when a stale server handled a click).
+    extra = [c for r in rows for c in r if c not in SHEET_COLUMNS]
+    fields = list(SHEET_COLUMNS) + list(dict.fromkeys(extra))
     fd, tmp = tempfile.mkstemp(dir=str(csv_path.parent), prefix=csv_path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=SHEET_COLUMNS)
+            w = csv.DictWriter(f, fieldnames=fields)
             w.writeheader()
             for row in rows:
-                w.writerow({c: row.get(c, "") for c in SHEET_COLUMNS})
+                w.writerow({c: row.get(c, "") for c in fields})
         os.replace(tmp, str(csv_path))
     except BaseException:
         try:
