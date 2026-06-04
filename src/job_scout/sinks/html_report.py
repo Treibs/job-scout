@@ -20,6 +20,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from .. import connections as _connections
 from ..models import SHEET_COLUMNS
 
 log = logging.getLogger("job_scout.html_report")
@@ -32,10 +33,13 @@ def _safe_http_url(url: str) -> str:
     return u if u[:7].lower() == "http://" or u[:8].lower() == "https://" else ""
 
 
-def render(csv_path, html_path=None, generated_at: str | None = None) -> Path | None:
+def render(csv_path, html_path=None, generated_at: str | None = None,
+           connections_path=_connections.DEFAULT_PATH) -> Path | None:
     """Read ``csv_path`` and write a self-contained dashboard to ``html_path``
     (default: the CSV path with a .html suffix). Returns the html path, or None
-    if the CSV doesn't exist yet."""
+    if the CSV doesn't exist yet. If a LinkedIn connections export exists at
+    ``connections_path``, each role is annotated with who in your network is at
+    that company."""
     csv_path = Path(csv_path)
     if not csv_path.exists():
         log.info("html report skipped: %s does not exist", csv_path)
@@ -52,6 +56,10 @@ def render(csv_path, html_path=None, generated_at: str | None = None) -> Path | 
     # HTML-escaping an attribute doesn't neutralize a javascript: scheme.
     for r in rows:
         r["apply_url"] = _safe_http_url(r["apply_url"])
+
+    # Overlay LinkedIn connections (local, optional): each row gets a
+    # ``connections`` list of people at that company. No file -> all empty.
+    _connections.annotate(rows, connections_path)
 
     data_json = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     generated = generated_at or datetime.now().strftime("%b %d, %Y · %H:%M")
@@ -140,8 +148,14 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .frow input[type=search]{flex:1;min-width:0}
   .frow select{cursor:pointer;font-family:var(--mono);font-size:11px;max-width:130px}
   .frow input:focus,.frow select:focus{border-color:var(--amber-dim)}
+  .ftoggle{font-family:var(--mono);font-size:11px;letter-spacing:.3px;border:1px solid var(--line);background:var(--bg2);
+    color:var(--ink-faint);border-radius:8px;padding:7px 11px;cursor:pointer;white-space:nowrap;transition:.12s}
+  .ftoggle:hover{color:var(--ink-dim);border-color:var(--line2)}
+  .ftoggle.on{background:rgba(245,177,76,.12);border-color:var(--amber-dim);color:var(--amber)}
   .lcount{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding:8px 18px;border-bottom:1px solid var(--line)}
   .lcount b{color:var(--ink-dim)}
+  .netchip{font-family:var(--mono);font-size:10px;color:var(--amber);background:rgba(245,177,76,.1);
+    border:1px solid var(--amber-dim);border-radius:6px;padding:1px 6px;white-space:nowrap}
 
   /* list */
   .list{flex:1;overflow-y:auto;padding:8px}
@@ -202,6 +216,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .dim .bar i{display:block;height:100%;background:var(--amber);border-radius:3px}
   .comp{font-family:var(--mono);color:var(--teal);font-size:14px}
   .blurb{color:var(--ink-dim);font-size:14.5px;line-height:1.65}
+  .net{list-style:none;display:flex;flex-direction:column;gap:9px}
+  .net li{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px;padding:10px 13px;background:var(--bg2);
+    border:1px solid var(--line);border-radius:9px}
+  .net .nm{font-weight:600;color:var(--ink)}
+  .net .po{color:var(--ink-dim);font-size:13px}
+  .net .dt{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-left:auto}
   .dd{list-style:none;display:flex;flex-direction:column;gap:10px}
   .dd li{position:relative;padding-left:26px;color:#d3d6dd;font-size:14.5px;line-height:1.5}
   .dd li::before{content:'›';position:absolute;left:5px;top:-1px;color:var(--amber);font-family:var(--mono);font-weight:700;font-size:17px}
@@ -260,6 +280,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
           <option value="seen">Newest</option>
           <option value="company">Company</option>
         </select>
+        <button id="known" class="ftoggle" title="Only roles where you have a LinkedIn connection">🤝 Know someone</button>
       </div>
     </div>
     <div class="lcount" id="count"></div>
@@ -299,7 +320,8 @@ function applyLocal(){ if(SERVED) return; const o=LS.get();
 applyLocal();
 
 let sel = null;
-const state = { q:'', stage:'all', company:'', source:'', sort:'score' };
+const state = { q:'', stage:'all', company:'', source:'', sort:'score', known:false };
+const HAS_NET = DATA.some(r=>r.connections && r.connections.length);
 
 // ── persistence (optimistic, with revert on failure) ──
 async function save(url, fields, onFail){
@@ -367,6 +389,7 @@ function filtered(){
     if(state.stage==='all' && r.status==='stale' && !state.q && !state.company) return false;
     if(state.company && r.company!==state.company) return false;
     if(state.source && r.source!==state.source) return false;
+    if(state.known && !(r.connections && r.connections.length)) return false;
     if(state.q){ const h=(r.title+' '+r.company+' '+r.location+' '+r.notes+' '+r.rationale).toLowerCase();
       if(!h.includes(state.q)) return false; }
     return true;
@@ -390,7 +413,7 @@ function rowHtml(r,i){
   const s=num(r.score), h=heat(s);
   return `<div class="row ${r.apply_url===sel?'sel':''} ${r.status==='stale'?'stale':''}" data-url="${esc(r.apply_url)}" style="animation-delay:${Math.min(i*14,300)}ms">
     <div class="sc" style="background:${h.bg};border-color:${h.bd};color:${h.fg}"><span class="v">${s==null?'—':s.toFixed(0)}</span><span class="k">SCORE</span></div>
-    <div><div class="rtitle">${esc(r.title)}</div><div class="rmeta">${esc(r.company)} <span class="src">· ${esc(r.source)}</span>${r.location?' · '+esc(r.location):''}</div></div>
+    <div><div class="rtitle">${esc(r.title)}</div><div class="rmeta">${esc(r.company)} <span class="src">· ${esc(r.source)}</span>${r.location?' · '+esc(r.location):''}${r.connections&&r.connections.length?' <span class="netchip">🤝 '+r.connections.length+'</span>':''}</div></div>
     <div class="pdot ${esc(r.status)}" title="${esc(r.status)}"></div></div>`;
 }
 function selectRow(url){ flushNote(); sel=url; render(); document.querySelector('.detail').scrollTop=0; }
@@ -415,6 +438,7 @@ function renderDetail(){
       </div>
     </div>
     ${r.company_blurb?`<div class="sect"><div class="slabel">About ${esc(r.company)}</div><div class="blurb">${esc(r.company_blurb)}</div></div>`:''}
+    ${r.connections&&r.connections.length?`<div class="sect"><div class="slabel">In your network · ${r.connections.length}</div><ul class="net">${r.connections.map(c=>`<li><span class="nm">${esc(c.name)}</span>${c.position?`<span class="po">${esc(c.position)}</span>`:''}${c.connected_on?`<span class="dt">${esc(c.connected_on)}</span>`:''}</li>`).join('')}</ul></div>`:''}
     <div class="sect"><div class="slabel">Pipeline</div>
       <div class="pipe">
         ${PIPE.map(p=>`<button class="stage ${r.status===p?'on':''}" data-s="${p}">${p[0].toUpperCase()+p.slice(1)}</button>`).join('')}
@@ -445,6 +469,9 @@ $('#q').oninput=e=>{state.q=e.target.value.trim().toLowerCase();render()};
 $('#company').onchange=e=>{state.company=e.target.value;render()};
 $('#source').onchange=e=>{state.source=e.target.value;render()};
 $('#sort').onchange=e=>{state.sort=e.target.value;render()};
+(function(){ const k=$('#known'); if(!k) return;
+  if(!HAS_NET){ k.style.display='none'; return; }
+  k.onclick=()=>{ state.known=!state.known; k.classList.toggle('on',state.known); render(); }; })();
 $('#addJob').onclick=()=>addUrl('job'); $('#addCo').onclick=()=>addUrl('company');
 window.addEventListener('beforeunload', flushNote);   // don't lose a pending note on close
 $('#cmd').onkeydown=e=>{ if(e.key==='Enter') addUrl(/\/jobs?\/|\/job\/|currentJobId|gh_jid|\/postings?\//.test($('#cmd').value)?'job':'company'); };

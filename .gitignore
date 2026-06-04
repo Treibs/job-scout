@@ -43,3 +43,8 @@ state/seen_hashes.json
 state/snapshot.sqlite
 state/linkedin_jd_cache.json
 state/discovery.json
+
+# ── LinkedIn connections export — PERSONAL PII (names of everyone you know).
+#    Drop your LinkedIn "Connections.csv" export here; it never leaves the machine.
+data/linkedin_connections.csv
+data/*.csv
