@@ -96,7 +96,7 @@ class BoardsCfg(BaseModel):
     proxies: list[str] = Field(default_factory=list)
     # LinkedIn only returns a description with a SECOND request per job. When on,
     # the enrich stage fetches JDs for only the top `linkedin_enrich_max` most
-    # résumé-relevant roles (cached, paced) — safe without proxies at that volume.
+    # resume-relevant roles (cached, paced) — safe without proxies at that volume.
     linkedin_fetch_description: bool = False
     linkedin_enrich_max: int = 30
 

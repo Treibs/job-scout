@@ -110,7 +110,7 @@ def test_strategist_propose_filters_by_relevance():
         class messages:
             @staticmethod
             def create(**kw): return FakeResp()
-    out = strategist.propose({"current_keywords": []}, "résumé text",
+    out = strategist.propose({"current_keywords": []}, "resume text",
                              FakeClient(), "MiniMax-M2.5-highspeed")
     kws = [k["keyword"] for k in out["add_keywords"]]
     assert kws == ["Chief AI Officer"]          # low-relevance "Barista" dropped

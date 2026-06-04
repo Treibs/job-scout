@@ -82,7 +82,7 @@ def run_pipeline(config: Config) -> list[Job]:
     jobs = dedupe.dedupe(jobs, seen)
     log.info("%d jobs after dedupe", len(jobs))
 
-    # Enrich the top résumé-relevant LinkedIn roles with full JDs (cached, capped)
+    # Enrich the top resume-relevant LinkedIn roles with full JDs (cached, capped)
     # so scoring sees real description text, not just a title. No-op unless enabled.
     from . import enrich
 

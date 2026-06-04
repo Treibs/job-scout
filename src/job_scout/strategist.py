@@ -1,11 +1,11 @@
 """The strategist — the "thought" in the feedback loop.
 
 Every few days it reasons over the discovery ledger, the recent high-scoring
-roles, Robert's interest signals, and his résumé, then proposes changes to the
+roles, Robert's interest signals, and his resume, then proposes changes to the
 search — new keywords and companies, and prunes of its own dead experiments.
 
 THE GUARDRAIL (non-negotiable): nothing is added unless it clearly fits the
-résumé and the established target sectors, each with a written ``fit_reason`` and
+resume and the established target sectors, each with a written ``fit_reason`` and
 a ``relevance`` ≥ threshold. Bending to an adjacent sector/title is allowed only
 with a strong justification. Everything is logged; nothing is silent.
 
@@ -89,9 +89,9 @@ def propose(digest_data: dict, resume_text: str, client, model: str,
     parsed proposal, with adds filtered to relevance ≥ threshold."""
     system = (
         "You tune a personal job search for ONE candidate. Propose ONLY changes "
-        "that clearly fit the résumé and these target sectors: " + TARGET_SECTORS + ".\n"
+        "that clearly fit the resume and these target sectors: " + TARGET_SECTORS + ".\n"
         "GUARDRAIL: every added keyword/company needs a one-sentence `fit_reason` "
-        "tying it to the résumé + existing targets, and a `relevance` from 0 to 1. "
+        "tying it to the resume + existing targets, and a `relevance` from 0 to 1. "
         "Bending to an adjacent sector or title is allowed ONLY with a strong "
         "fit_reason. Favor companies similar to the productive ones and to where "
         "the candidate showed interest. Do NOT propose Big Tech, AI labs, major "

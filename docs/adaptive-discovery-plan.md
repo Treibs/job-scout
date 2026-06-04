@@ -1,12 +1,12 @@
 # Adaptive Discovery — plan
 
 Turns job-scout from a fixed pull into a self-tuning loop: informed variability +
-a feedback loop grounded in Robert's résumé, what's scoring, and what he engages
+a feedback loop grounded in Robert's resume, what's scoring, and what he engages
 with. Agreed with Robert 2026-06-03.
 
 ## Decisions (locked)
 - **Autonomy:** auto-add companies AND keywords — but NOT willy-nilly. Every
-  addition must be justified against résumé goals and similarity to current
+  addition must be justified against resume goals and similarity to current
   targets/roles. May bend slightly outside the established filter when a role /
   company / opportunity clearly fits. Kitsune leaves a dated report of changes.
 - **Interest signal:** clickable in the dashboard (Interested / Applied / Pass),
@@ -14,7 +14,7 @@ with. Agreed with Robert 2026-06-03.
 
 ## Relevance guardrail (the core rule)
 No keyword/company is added unless the strategist produces, per candidate:
-`fit_reason` (1-2 sentences tying it to résumé + existing targets) and a
+`fit_reason` (1-2 sentences tying it to resume + existing targets) and a
 `relevance` score ≥ threshold. Sectors of record: banking/insurance, industrials/
 manufacturing, CPG/food/retail, sports/entertainment — Chicago, AI/innovation
 leadership. "Bend" = adjacent sector/title allowed only with a strong written
@@ -29,7 +29,7 @@ Two-pass so we fetch ~30 descriptions/day, not 190+.
 - `state/linkedin_jd_cache.json` — id → description. Fetch once, reuse forever
   (dedup already tracks ids), so steady-state is a handful of NEW roles/day.
 - `enrich.py` stage (between dedupe and score): for LinkedIn jobs lacking a
-  description, rank by **local embedding** similarity to résumé (cheap, no API,
+  description, rank by **local embedding** similarity to resume (cheap, no API,
   reuses the sentence-transformer), take top `LINKEDIN_ENRICH_MAX` (default 30),
   fetch (cache-first) with 2-5s jitter, attach. Then normal LLM scoring runs once.
 - Gated by `boards.linkedin_fetch_description` (now meaning "enrich top-N", safe).
@@ -47,7 +47,7 @@ Two-pass so we fetch ~30 descriptions/day, not 190+.
 - Daily run = exploit + explore (epsilon-greedy): ~80% proven keywords/companies,
   ~20% rotating trials whose yield is tracked in the ledger.
 - Kitsune cron `job-scout-strategist`, **every 3 days**: LLM reasons over ledger
-  + recent high-scorers + interest hits + résumé, and (a) proposes new keywords from
+  + recent high-scorers + interest hits + resume, and (a) proposes new keywords from
   winning title-patterns, (b) discovers companies from high-scoring off-watchlist
   board roles → resolves their ATS → adds them, (c) prunes dead arms. Each change
   passes the relevance guardrail; auto-applied; dated report committed.
