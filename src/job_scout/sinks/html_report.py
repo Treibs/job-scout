@@ -289,19 +289,30 @@ applyLocal();
 let sel = null;
 const state = { q:'', stage:'all', company:'', source:'', sort:'score' };
 
-// ── persistence ──
-async function save(url, fields){
-  const r = DATA.find(x=>x.apply_url===url); if(r) Object.assign(r, fields);
+// ── persistence (optimistic, with revert on failure) ──
+async function save(url, fields, onFail){
+  const r = DATA.find(x=>x.apply_url===url); if(!r) return;
+  const prev={}; Object.keys(fields).forEach(k=>prev[k]=r[k]); const prevApplied=r.applied_on;
+  Object.assign(r, fields);   // optimistic
   if(SERVED){
-    try{ const res = await fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({apply_url:url, ...fields})});
+    try{
+      const res = await fetch('/update',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({apply_url:url, ...fields})});
       if(!res.ok) throw 0;
-      if(fields.status==='applied' && r && !r.applied_on) r.applied_on = new Date().toISOString().slice(0,10);
-    }catch(e){ toast('Could not save — is the server running?','err'); }
+      if(fields.status==='applied' && !r.applied_on) r.applied_on = new Date().toISOString().slice(0,10);
+    }catch(e){
+      Object.assign(r, prev); r.applied_on = prevApplied;   // didn't persist — roll the cache back
+      toast('Could not save — is the server running?','err');
+      if(onFail) onFail();
+    }
   } else {
     const o=LS.get(); o[url]=Object.assign(o[url]||{}, fields); LS.set(o);
   }
 }
+
+// pending-notes flush: never let a debounced save fire against the wrong role
+let _noteTimer=null, _flushNote=null;
+function flushNote(){ if(_flushNote){ clearTimeout(_noteTimer); const f=_flushNote; _flushNote=null; f(); } }
 
 async function addUrl(kind){
   const url = $('#cmd').value.trim();
@@ -370,7 +381,7 @@ function rowHtml(r,i){
     <div><div class="rtitle">${esc(r.title)}</div><div class="rmeta">${esc(r.company)} <span class="src">· ${esc(r.source)}</span>${r.location?' · '+esc(r.location):''}</div></div>
     <div class="pdot ${esc(r.status)}" title="${esc(r.status)}"></div></div>`;
 }
-function selectRow(url){ sel=url; render(); document.querySelector('.detail').scrollTop=0; }
+function selectRow(url){ flushNote(); sel=url; render(); document.querySelector('.detail').scrollTop=0; }
 
 // ── detail ──
 function renderDetail(){
@@ -404,9 +415,12 @@ function renderDetail(){
       <textarea class="notes" id="notes" placeholder="referred by… · follow up on… · recruiter name… · why you like it">${esc(r.notes)}</textarea>
       <div class="notehint" id="notehint">${SERVED?'autosaves':'saved locally (run the server to persist to the tracker)'}</div>
     </div>`;
-  d.querySelectorAll('.stage').forEach(b=>b.onclick=()=>{ save(r.apply_url,{status:b.dataset.s}); render(); });
-  const ta = $('#notes'); let nt;
-  ta.oninput=()=>{ clearTimeout(nt); nt=setTimeout(()=>{ save(r.apply_url,{notes:ta.value}); $('#notehint').textContent=SERVED?'saved ✓':'saved locally'; }, 600); };
+  d.querySelectorAll('.stage').forEach(b=>b.onclick=()=>{ save(r.apply_url,{status:b.dataset.s}, ()=>render()); render(); });
+  const ta = $('#notes');
+  ta.oninput=()=>{ clearTimeout(_noteTimer);
+    _flushNote=()=>{ const h=$('#notehint'); save(r.apply_url,{notes:ta.value}); if(h) h.textContent=SERVED?'saved ✓':'saved locally'; _flushNote=null; };
+    _noteTimer=setTimeout(flushNote, 600); };
+  ta.onblur=flushNote;   // also flush when the field loses focus
 }
 
 // ── wire up ──
@@ -417,6 +431,7 @@ $('#company').onchange=e=>{state.company=e.target.value;render()};
 $('#source').onchange=e=>{state.source=e.target.value;render()};
 $('#sort').onchange=e=>{state.sort=e.target.value;render()};
 $('#addJob').onclick=()=>addUrl('job'); $('#addCo').onclick=()=>addUrl('company');
+window.addEventListener('beforeunload', flushNote);   // don't lose a pending note on close
 $('#cmd').onkeydown=e=>{ if(e.key==='Enter') addUrl(/\/jobs?\/|\/job\/|currentJobId|gh_jid|\/postings?\//.test($('#cmd').value)?'job':'company'); };
 setConn();
 const _first = filtered()[0]; if(_first) sel = _first.apply_url;  // open the top role by default
