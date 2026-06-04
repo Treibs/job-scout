@@ -98,7 +98,7 @@ def test_sheet_columns_shape():
         "score", "mission", "comp", "learning", "wlb", "prestige",
         "title", "company", "location", "comp_estimate", "source",
         "date_posted", "first_seen", "apply_url", "status",
-        "rationale", "red_flags", "notes", "applied_on",
+        "rationale", "red_flags", "day_to_day", "company_blurb", "notes", "applied_on",
     ]
     assert SHEET_COLUMNS == expected
 
