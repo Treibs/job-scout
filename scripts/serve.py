@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Local-only companion server for the job-scout dashboard.
+"""Local-only companion server — the dashboard's backend.
 
 The dashboard (output/jobs.html) is a static file you can open straight from
-disk. This tiny helper exists for one reason: so the static dashboard can
-*persist* your Interested / Applied / Pass choices back into output/jobs.csv
-instead of only keeping them in the browser's localStorage.
+disk (read-only). Run this and open the printed URL to turn it into a live app:
+persist your pipeline status + notes, add a company to watch, or paste a job link
+to scrape + score it straight into your shortlist.
 
-It is deliberately localhost-ONLY (binds 127.0.0.1, never 0.0.0.0) and uses
-nothing but the Python standard library — no Flask, no third-party deps. Run it,
-open the printed URL, and the buttons on each card will POST their status here.
+Deliberately localhost-ONLY (binds 127.0.0.1) and stdlib-only — no Flask, no deps.
 
     python scripts/serve.py            # http://127.0.0.1:8765/
-    python scripts/serve.py --port 9000
 
 Routes:
-    GET  /         -> regenerate + serve output/jobs.html
-    POST /status   -> {"apply_url": "...", "status": "interested"} updates the CSV
+    GET  /            -> regenerate + serve output/jobs.html
+    POST /status      -> {"apply_url","status"}                      (back-compat)
+    POST /update      -> {"apply_url","status"?,"notes"?,"applied_on"?}
+    POST /add-company -> {"url": "<careers page URL>"}  parse ATS, verify, watch it
+    POST /add-job     -> {"url": "<job posting URL>"}   scrape + score + shortlist
 """
 
 from __future__ import annotations
@@ -27,72 +27,140 @@ import os
 import pathlib
 import sys
 import tempfile
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# The package lives under src/ — make it importable when run from the repo root.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from job_scout.models import SHEET_COLUMNS  # noqa: E402
+from job_scout.models import SHEET_COLUMNS, VALID_STATUSES, job_to_row  # noqa: E402
 from job_scout.sinks import html_report  # noqa: E402
 
 CSV_PATH = "output/jobs.csv"
 HTML_PATH = "output/jobs.html"
+CONFIG_PATH = "config/search.yaml"
 
-# Statuses the dashboard buttons are allowed to set. A subset of the full
-# lifecycle (no "stale"/"new" — those are pipeline-managed, not user choices).
-ALLOWED_STATUSES = frozenset(
-    {"new", "reviewing", "interested", "applied", "pass", "rejected", "archived"}
-)
+# Statuses the dashboard may set (the pipeline + exits; not "new"/"stale").
+ALLOWED_STATUSES = frozenset(VALID_STATUSES - {"new", "stale"})
+_EDITABLE = {"status", "notes", "applied_on"}
 
 
-def set_status(csv_path, apply_url: str, status: str) -> bool:
-    """Set the ``status`` cell of the row whose ``apply_url`` matches.
+# ── CSV helpers (pure + importable) ──────────────────────────────────────────
+def _read(csv_path):
+    with pathlib.Path(csv_path).open("r", encoding="utf-8", newline="") as f:
+        return [dict(r) for r in csv.DictReader(f)]
 
-    Pure + importable: reads the CSV, flips exactly one cell, and rewrites the
-    file atomically (temp file + os.replace) preserving every other column and
-    the exact SHEET_COLUMNS order. Returns True if a row was updated, False if
-    no row had that apply_url.
-    """
+
+def _write(csv_path, rows):
     csv_path = pathlib.Path(csv_path)
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or list(SHEET_COLUMNS)
-        rows = [dict(r) for r in reader]
-
-    found = False
-    for row in rows:
-        if row.get("apply_url") == apply_url:
-            row["status"] = status
-            found = True
-    if not found:
-        return False
-
-    # Write to a temp file in the same directory, then atomically replace so a
-    # crash mid-write can never leave a half-written tracker behind.
-    fd, tmp_name = tempfile.mkstemp(
-        dir=str(csv_path.parent), prefix=csv_path.name + ".", suffix=".tmp"
-    )
+    fd, tmp = tempfile.mkstemp(dir=str(csv_path.parent), prefix=csv_path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=SHEET_COLUMNS)
-            writer.writeheader()
+            w = csv.DictWriter(f, fieldnames=SHEET_COLUMNS)
+            w.writeheader()
             for row in rows:
-                writer.writerow({col: row.get(col, "") for col in SHEET_COLUMNS})
-        os.replace(tmp_name, str(csv_path))
+                w.writerow({c: row.get(c, "") for c in SHEET_COLUMNS})
+        os.replace(tmp, str(csv_path))
     except BaseException:
-        # Best-effort cleanup of the temp file if anything went wrong.
         try:
-            os.unlink(tmp_name)
+            os.unlink(tmp)
         except OSError:
             pass
         raise
-    return True
 
 
+def set_status(csv_path, apply_url: str, status: str) -> bool:
+    """Back-compat single-field setter (kept; tested)."""
+    return update_row(csv_path, apply_url, {"status": status})
+
+
+def update_row(csv_path, apply_url: str, fields: dict) -> bool:
+    """Set the editable cells of the row matching ``apply_url``. Auto-stamps
+    ``applied_on`` with today's date the first time a row becomes 'applied'."""
+    rows = _read(csv_path)
+    found = False
+    for row in rows:
+        if row.get("apply_url") == apply_url:
+            for k, v in fields.items():
+                if k in _EDITABLE:
+                    row[k] = v
+            if fields.get("status") == "applied" and not (row.get("applied_on") or "").strip():
+                row["applied_on"] = date.today().isoformat()
+            found = True
+    if found:
+        _write(csv_path, rows)
+    return found
+
+
+def append_job(csv_path, job) -> dict:
+    """Upsert a scraped+scored Job into the tracker. Returns the written row."""
+    rows = _read(csv_path)
+    new_row = {c: ("" if v is None else v) for c, v in zip(SHEET_COLUMNS, job_to_row(job))}
+    today = date.today().isoformat()
+    for i, row in enumerate(rows):
+        if row.get("apply_url") == job.url:  # already tracked — refresh, keep user fields
+            for keep in ("first_seen", "notes", "applied_on"):
+                if row.get(keep):
+                    new_row[keep] = row[keep]
+            if (row.get("status") or "") in ALLOWED_STATUSES:
+                new_row["status"] = row["status"]
+            rows[i] = new_row
+            break
+    else:
+        new_row.setdefault("first_seen", today)
+        if not new_row.get("first_seen"):
+            new_row["first_seen"] = today
+        rows.append(new_row)
+    _write(csv_path, rows)
+    return new_row
+
+
+# ── actions that need job_scout config / network ─────────────────────────────
+def _config():
+    from job_scout.config import load_config
+    return load_config(CONFIG_PATH)
+
+
+def add_company(url: str) -> dict:
+    """Parse a careers URL → verify the ATS returns jobs → add to the watch list."""
+    from job_scout import ingest, strategist
+    from job_scout.config import CompanyTarget
+    from job_scout.sources.ats import ATS_FETCHERS
+
+    entry = ingest.parse_company_url(url)
+    if not entry:
+        return {"ok": False, "error": "Not a supported ATS careers URL (greenhouse/lever/ashby/smartrecruiters/workday)."}
+    cfg = _config()
+    fetch = ATS_FETCHERS.get(entry["ats"])
+    try:
+        rows = fetch(CompanyTarget(**entry), cfg) if fetch else []
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"verify failed: {e}"}
+    if not rows:
+        return {"ok": False, "error": f"{entry['ats']} returned no jobs for {entry['name']} — double-check the URL."}
+    strategist.apply_changes("config", add_companies=[entry], notes="added from dashboard")
+    return {"ok": True, "company": entry, "jobs_found": len(rows),
+            "message": f"Watching {entry['name']} ({entry['ats']}, {len(rows)} open roles) — appears on the next scan."}
+
+
+def add_job(url: str) -> dict:
+    """Scrape one job URL, score it, and drop it into the shortlist."""
+    from job_scout import ingest, score
+    job = ingest.ingest_url(url)
+    if not job:
+        return {"ok": False, "error": "Couldn't read a job from that URL."}
+    try:
+        score.score_one_no_filter([job], _config())
+    except Exception:  # noqa: BLE001 — scoring is best-effort; still add the role
+        pass
+    row = append_job(CSV_PATH, job)
+    return {"ok": True, "row": row, "message": f"Added “{job.title}” — {job.company}."}
+
+
+# ── HTTP ─────────────────────────────────────────────────────────────────────
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "JobScoutServe/1.0"
+    server_version = "JobScoutServe/2.0"
 
-    def _send_json(self, code: int, payload: dict) -> None:
+    def _json(self, code, payload):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -100,15 +168,18 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802 — name fixed by BaseHTTPRequestHandler
+    def _body(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        except (ValueError, json.JSONDecodeError):
+            return None
+
+    def do_GET(self):  # noqa: N802
         if self.path != "/":
-            self._send_json(404, {"ok": False, "error": "not found"})
-            return
-        # Regenerate the dashboard from the current CSV, then serve it.
-        out = html_report.render(CSV_PATH)
-        if out is None:
-            self._send_json(404, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
-            return
+            return self._json(404, {"ok": False, "error": "not found"})
+        if html_report.render(CSV_PATH) is None:
+            return self._json(404, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
         body = pathlib.Path(HTML_PATH).read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -116,48 +187,45 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/status":
-            self._send_json(404, {"ok": False, "error": "not found"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(length) if length else b""
-            data = json.loads(raw.decode("utf-8")) if raw else {}
-        except (ValueError, json.JSONDecodeError):
-            self._send_json(400, {"ok": False, "error": "invalid JSON body"})
-            return
+    def do_POST(self):  # noqa: N802
+        data = self._body()
+        if data is None:
+            return self._json(400, {"ok": False, "error": "invalid JSON body"})
+        route = self.path
 
-        apply_url = (data.get("apply_url") or "").strip()
-        status = (data.get("status") or "").strip()
-        if status not in ALLOWED_STATUSES:
-            self._send_json(400, {"ok": False, "error": f"invalid status: {status!r}"})
-            return
-        if not apply_url:
-            self._send_json(400, {"ok": False, "error": "missing apply_url"})
-            return
+        if route in ("/status", "/update"):
+            apply_url = (data.get("apply_url") or "").strip()
+            if not apply_url:
+                return self._json(400, {"ok": False, "error": "missing apply_url"})
+            fields = {k: data[k] for k in _EDITABLE if k in data}
+            if "status" in fields and fields["status"] not in ALLOWED_STATUSES:
+                return self._json(400, {"ok": False, "error": f"invalid status: {fields['status']!r}"})
+            try:
+                ok = update_row(CSV_PATH, apply_url, fields)
+            except FileNotFoundError:
+                return self._json(400, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
+            return self._json(200 if ok else 400,
+                              {"ok": ok} if ok else {"ok": False, "error": "unknown apply_url"})
 
-        try:
-            updated = set_status(CSV_PATH, apply_url, status)
-        except FileNotFoundError:
-            self._send_json(400, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
-            return
-        if not updated:
-            self._send_json(400, {"ok": False, "error": "unknown apply_url"})
-            return
-        self._send_json(200, {"ok": True})
+        if route == "/add-company":
+            res = add_company((data.get("url") or "").strip())
+            return self._json(200 if res["ok"] else 400, res)
 
-    def log_message(self, fmt, *args) -> None:  # quieter console
+        if route == "/add-job":
+            res = add_job((data.get("url") or "").strip())
+            return self._json(200 if res["ok"] else 400, res)
+
+        return self._json(404, {"ok": False, "error": "not found"})
+
+    def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="job-scout-serve", description=__doc__)
     p.add_argument("--port", type=int, default=8765, help="Port (default: 8765).")
     args = p.parse_args(argv)
-
-    # 127.0.0.1 ONLY — never bind 0.0.0.0. This is a personal, local-only helper.
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), _Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), _Handler)  # loopback only
     print(f"Open http://127.0.0.1:{args.port}/ in your browser")
     try:
         server.serve_forever()

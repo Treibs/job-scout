@@ -16,18 +16,25 @@ from typing import Any
 
 
 # Tracker lifecycle states (also the allowed values for `Job.status`).
+# The "pipeline" the user works in the dashboard:
+#   new → interested → applied → interview → offer   (with pass/rejected/archived
+#   as exits, and stale = listing disappeared from source).
 STATUS_NEW = "new"
 STATUS_REVIEWING = "reviewing"
 STATUS_INTERESTED = "interested"  # user flagged from the dashboard
 STATUS_APPLIED = "applied"
+STATUS_INTERVIEW = "interview"
+STATUS_OFFER = "offer"
 STATUS_PASS = "pass"  # user dismissed from the dashboard
 STATUS_REJECTED = "rejected"
 STATUS_ARCHIVED = "archived"
 STATUS_STALE = "stale"  # listing disappeared from source
 VALID_STATUSES = frozenset(
-    {STATUS_NEW, STATUS_REVIEWING, STATUS_INTERESTED, STATUS_APPLIED, STATUS_PASS,
-     STATUS_REJECTED, STATUS_ARCHIVED, STATUS_STALE}
+    {STATUS_NEW, STATUS_REVIEWING, STATUS_INTERESTED, STATUS_APPLIED, STATUS_INTERVIEW,
+     STATUS_OFFER, STATUS_PASS, STATUS_REJECTED, STATUS_ARCHIVED, STATUS_STALE}
 )
+# The ordered pipeline stages the user moves a role through (drives the board).
+PIPELINE_STAGES = (STATUS_INTERESTED, STATUS_APPLIED, STATUS_INTERVIEW, STATUS_OFFER)
 
 
 @dataclass
@@ -63,6 +70,8 @@ class Job:
     status: str = STATUS_NEW
     first_seen: date | None = None
     last_seen: date | None = None
+    notes: str | None = None  # user's free-text notes (preserved across runs)
+    applied_on: str | None = None  # ISO date the user marked it applied
 
     def to_dict(self) -> dict[str, Any]:
         """Plain dict (dates stay as date objects). For JSON, see `to_json_dict`."""
@@ -98,6 +107,8 @@ SHEET_COLUMNS: list[str] = [
     "status",
     "rationale",
     "red_flags",
+    "notes",
+    "applied_on",
 ]
 
 # scoring.yaml dimension id  ->  SHEET_COLUMNS column name.
@@ -144,5 +155,7 @@ def job_to_row(job: "Job") -> list:
         "status": job.status,
         "rationale": job.rationale,
         "red_flags": ", ".join(job.red_flags) if job.red_flags else "",
+        "notes": job.notes,
+        "applied_on": job.applied_on,
     }
     return [field_map.get(col) for col in SHEET_COLUMNS]
