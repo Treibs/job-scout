@@ -45,4 +45,21 @@ def test_ingest_generic_fallback():
 
 def test_ingest_rejects_non_http():
     assert ingest.ingest_url("javascript:alert(1)", fetch=lambda u: "x") is None
+
+
+def test_is_public_url_blocks_private_and_metadata():
+    # Literal IPs / localhost — resolved without external DNS, so this is hermetic.
+    assert ingest._is_public_url("http://169.254.169.254/latest/meta-data/") is False
+    assert ingest._is_public_url("http://127.0.0.1:8765/") is False
+    assert ingest._is_public_url("http://10.0.0.5/careers") is False
+    assert ingest._is_public_url("http://192.168.1.10/job/1") is False
+    assert ingest._is_public_url("http://localhost/x") is False
+    assert ingest._is_public_url("not a url") is False
+    # A public literal IP is allowed.
+    assert ingest._is_public_url("http://8.8.8.8/jobs/1") is True
+
+
+def test_ingest_url_refuses_ssrf_target():
+    # Real network path (no injected fetch): the SSRF guard must short-circuit to None.
+    assert ingest.ingest_url("http://169.254.169.254/latest/meta-data/") is None
     assert ingest.ingest_url("", fetch=lambda u: "x") is None

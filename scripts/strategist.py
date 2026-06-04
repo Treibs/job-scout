@@ -51,7 +51,18 @@ def main(argv=None) -> int:
 
     # Cron path: append already-resolved companies and exit.
     if args.add_companies is not None:
-        companies = json.loads(args.add_companies)
+        try:
+            companies = json.loads(args.add_companies)
+        except json.JSONDecodeError as e:
+            print(json.dumps({"error": f"--add-companies is not valid JSON: {e}"}))
+            return 2
+        if not isinstance(companies, list):
+            print(json.dumps({"error": "--add-companies must be a JSON list of company objects"}))
+            return 2
+        companies = [c for c in companies if isinstance(c, dict) and c.get("name")]
+        if not companies:
+            print(json.dumps({"error": "--add-companies had no valid {name, ats, ...} entries"}))
+            return 2
         path = S.apply_changes(cfg_dir, add_companies=companies, notes="companies added by strategist cron")
         print(json.dumps({"added_companies": len(companies), "file": str(path)}))
         return 0

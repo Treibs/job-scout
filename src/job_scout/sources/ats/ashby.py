@@ -23,7 +23,9 @@ Field mapping (Ashby -> raw dict):
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -34,6 +36,16 @@ log = logging.getLogger("job_scout.sources.ashby")
 NAME = "ashby"
 _BASE = "https://api.ashbyhq.com/posting-api/job-board"
 _TIMEOUT = 15
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"[ \t\r\f\v]+")
+
+
+def _strip_html(raw: str | None) -> str | None:
+    """Flatten an HTML description to text (Ashby's descriptionHtml fallback)."""
+    if not raw:
+        return None
+    text = _WS_RE.sub(" ", _TAG_RE.sub(" ", html.unescape(raw)))
+    return re.sub(r"\n\s*\n\s*\n+", "\n\n", text).strip() or None
 _UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -177,7 +189,11 @@ def fetch(company: Any, config: Any) -> list[dict]:
         if not _is_fresh(date_posted, freshness_hours):
             continue
 
-        description = job.get("descriptionPlain") or job.get("descriptionHtml")
+        # Prefer the plain field; if only HTML is present, flatten it to text so
+        # downstream scoring/CSV never gets raw markup (matches the other ATSes).
+        description = job.get("descriptionPlain")
+        if not isinstance(description, str) or not description.strip():
+            description = _strip_html(job.get("descriptionHtml"))
         is_remote = job.get("isRemote")
 
         rows.append(

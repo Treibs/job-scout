@@ -281,7 +281,7 @@ const SCALE_MAX = 5;
 
 const $ = s => document.querySelector(s);
 const num = v => { const n = parseFloat(v); return isNaN(n)?null:n; };
-const esc = s => (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function heat(s){
   if(s==null) return {bg:'var(--bg3)',bd:'var(--line)',fg:'var(--ink-faint)'};
   if(s>=75) return {bg:'rgba(126,234,168,.12)',bd:'#2f6b4d',fg:'#7eeaa8'};

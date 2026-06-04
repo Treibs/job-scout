@@ -27,6 +27,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import threading
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -42,6 +43,14 @@ CONFIG_PATH = "config/search.yaml"
 # Statuses the dashboard may set (the pipeline + exits; not "new"/"stale").
 ALLOWED_STATUSES = frozenset(VALID_STATUSES - {"new", "stale"})
 _EDITABLE = {"status", "notes", "applied_on"}
+
+# Serialize CSV read-modify-write across the ThreadingHTTPServer's worker threads
+# (and the GET render, which reads the CSV) so concurrent requests can't interleave
+# and clobber each other. NOTE: this is in-process only — it does not coordinate
+# with a separate scan/cron process writing the same CSV; stop the server during a
+# full re-scan, or add a cross-process file lock if you run both at once.
+_CSV_LOCK = threading.RLock()
+_render_state = {"csv_mtime": None}
 
 
 # ── CSV helpers (pure + importable) ──────────────────────────────────────────
@@ -82,42 +91,61 @@ def set_status(csv_path, apply_url: str, status: str) -> bool:
 def update_row(csv_path, apply_url: str, fields: dict) -> bool:
     """Set the editable cells of the row matching ``apply_url``. Auto-stamps
     ``applied_on`` with today's date the first time a row becomes 'applied'."""
-    rows = _read(csv_path)
-    found = False
-    for row in rows:
-        if row.get("apply_url") == apply_url:
-            for k, v in fields.items():
-                if k in _EDITABLE:
-                    row[k] = v
-            if fields.get("status") == "applied" and not (row.get("applied_on") or "").strip():
-                row["applied_on"] = date.today().isoformat()
-            found = True
-    if found:
-        _write(csv_path, rows)
-    return found
+    with _CSV_LOCK:
+        rows = _read(csv_path)
+        found = False
+        for row in rows:
+            if row.get("apply_url") == apply_url:
+                for k, v in fields.items():
+                    if k in _EDITABLE:
+                        row[k] = v
+                if fields.get("status") == "applied" and not (row.get("applied_on") or "").strip():
+                    row["applied_on"] = date.today().isoformat()
+                found = True
+        if found:
+            _write(csv_path, rows)
+        return found
 
 
 def append_job(csv_path, job) -> dict:
     """Upsert a scraped+scored Job into the tracker. Returns the written row."""
-    rows = _read(csv_path)
-    new_row = {c: ("" if v is None else v) for c, v in zip(SHEET_COLUMNS, job_to_row(job))}
-    today = date.today().isoformat()
-    for i, row in enumerate(rows):
-        if row.get("apply_url") == job.url:  # already tracked — refresh, keep user fields
-            for keep in ("first_seen", "notes", "applied_on"):
-                if row.get(keep):
-                    new_row[keep] = row[keep]
-            if (row.get("status") or "") in ALLOWED_STATUSES:
-                new_row["status"] = row["status"]
-            rows[i] = new_row
-            break
-    else:
-        new_row.setdefault("first_seen", today)
-        if not new_row.get("first_seen"):
-            new_row["first_seen"] = today
-        rows.append(new_row)
-    _write(csv_path, rows)
-    return new_row
+    with _CSV_LOCK:
+        rows = _read(csv_path)
+        new_row = {c: ("" if v is None else v) for c, v in zip(SHEET_COLUMNS, job_to_row(job))}
+        today = date.today().isoformat()
+        for i, row in enumerate(rows):
+            if row.get("apply_url") == job.url:  # already tracked — refresh, keep user fields
+                for keep in ("first_seen", "notes", "applied_on"):
+                    if row.get(keep):
+                        new_row[keep] = row[keep]
+                if (row.get("status") or "") in ALLOWED_STATUSES:
+                    new_row["status"] = row["status"]
+                rows[i] = new_row
+                break
+        else:
+            new_row.setdefault("first_seen", today)
+            if not new_row.get("first_seen"):
+                new_row["first_seen"] = today
+            rows.append(new_row)
+        _write(csv_path, rows)
+        return new_row
+
+
+# ── HTML render (cached by CSV mtime) ────────────────────────────────────────
+def _ensure_html() -> bool:
+    """Regenerate output/jobs.html only when the CSV changed since the last render.
+    Held under _CSV_LOCK so a render never interleaves with a concurrent write."""
+    with _CSV_LOCK:
+        try:
+            mtime = os.path.getmtime(CSV_PATH)
+        except OSError:
+            return False
+        if _render_state["csv_mtime"] == mtime and pathlib.Path(HTML_PATH).exists():
+            return True
+        if html_report.render(CSV_PATH) is None:
+            return False
+        _render_state["csv_mtime"] = mtime
+        return True
 
 
 # ── actions that need job_scout config / network ─────────────────────────────
@@ -184,7 +212,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path != "/":
             return self._json(404, {"ok": False, "error": "not found"})
-        if html_report.render(CSV_PATH) is None:
+        if not _ensure_html():
             return self._json(404, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
         body = pathlib.Path(HTML_PATH).read_bytes()
         self.send_response(200)

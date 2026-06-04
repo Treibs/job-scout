@@ -12,6 +12,16 @@ def test_job_id_extraction():
     assert linkedin_jd.job_id("") is None
 
 
+def test_job_id_ignores_tracking_params():
+    # The posting id must win over a numeric trackingId/refId in the query string.
+    u = ("https://www.linkedin.com/jobs/view/director-ai-at-globex-4012345678"
+         "?trackingId=9999999999&refId=abc")
+    assert linkedin_jd.job_id(u) == "4012345678"
+    # currentJobId form (no id in the path).
+    assert linkedin_jd.job_id(
+        "https://www.linkedin.com/jobs/view/?currentJobId=4012345678&trk=x") == "4012345678"
+
+
 def test_parse_description_strips_html():
     html = (
         '<div class="show-more-less-html__markup relative">'

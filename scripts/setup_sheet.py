@@ -56,10 +56,20 @@ def _load_credentials(raw: str):
     return Credentials.from_service_account_file(str(key_path), scopes=SCOPES)
 
 
+def _col_letter(col_idx: int) -> str:
+    """0-based column index -> A1 column label (A, B, ..., Z, AA, AB, ...)."""
+    label = ""
+    n = col_idx + 1
+    while n:
+        n, rem = divmod(n - 1, 26)
+        label = chr(ord("A") + rem) + label
+    return label
+
+
 def _score_col_a1(num_rows: int = 1000) -> tuple[str, int]:
     """Return (A1 range for the score column body, 0-based column index)."""
     col_idx = SHEET_COLUMNS.index("score")  # 0-based
-    col_letter = chr(ord("A") + col_idx)  # score is col A in the shipped order
+    col_letter = _col_letter(col_idx)  # survives reordering past column Z
     # Body rows only (skip the header at row 1).
     return f"{col_letter}2:{col_letter}{num_rows}", col_idx
 

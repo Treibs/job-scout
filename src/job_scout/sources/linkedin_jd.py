@@ -19,6 +19,14 @@ from html import unescape
 
 log = logging.getLogger("job_scout.sources.linkedin_jd")
 
+# Prefer the id in the known URL shapes (/jobs/view/<slug>-<id>, currentJobId=<id>,
+# /jobPosting/<id>) before falling back to "first long number anywhere", so a
+# numeric trackingId/refId query param can't be mistaken for the posting id.
+_ID_ANCHORED = (
+    re.compile(r"/jobs/view/(?:[^/?#]*?-)?(\d{6,})"),
+    re.compile(r"[?&]currentJobId=(\d{6,})"),
+    re.compile(r"/jobPosting/(\d{6,})"),
+)
 _ID_RE = re.compile(r"(\d{6,})")
 # The description lives in a show-more-less-html__markup container.
 _DESC_RE = re.compile(
@@ -44,6 +52,10 @@ def job_id(url: str) -> str | None:
     """Pull the numeric posting id out of a LinkedIn job URL."""
     if not url:
         return None
+    for rx in _ID_ANCHORED:
+        m = rx.search(url)
+        if m:
+            return m.group(1)
     m = _ID_RE.search(url)
     return m.group(1) if m else None
 

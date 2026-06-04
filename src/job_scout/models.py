@@ -10,7 +10,7 @@ for that contract). `normalize.py` is the only place that constructs `Job`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import date
 from typing import Any
 
