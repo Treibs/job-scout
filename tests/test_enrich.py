@@ -48,7 +48,11 @@ def test_disabled_is_noop():
 
 def test_fetches_and_caches(_tmp_cache):
     calls = []
-    def fake(url): calls.append(url); return "Full JD for " + url[-5:]
+
+    def fake(url):
+        calls.append(url)
+        return "Full JD for " + url[-5:]
+
     jobs = [_li("111111"), _li("222222")]
     enrich.enrich_descriptions(jobs, _config(), fetch_fn=fake)
     assert all(j.description.startswith("Full JD") for j in jobs)

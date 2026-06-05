@@ -363,7 +363,7 @@ async function addUrl(kind){
   if(!url){ $('#cmd').focus(); return; }
   if(!SERVED){ toast('Run  scripts/serve.py  to add jobs & companies.','err'); return; }
   const ep = kind==='job' ? '/add-job' : '/add-company';
-  toast('<span class="spin"></span>'+(kind==='job'?'Scraping & scoring…':'Resolving & verifying…'), 'ok', true);
+  toast('<span class="spin"></span>'+(kind==='job'?'Scraping & scoring…':'Resolving & verifying…'), 'ok', true, true);
   try{
     const res = await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
     const j = await res.json();
@@ -378,8 +378,11 @@ async function addUrl(kind){
 }
 
 let toastT;
-function toast(html, cls, sticky){ const t=$('#toast'); t.className=cls||''; t.innerHTML=html; t.classList.add('show');
-  clearTimeout(toastT); if(!sticky) toastT=setTimeout(()=>t.classList.remove('show'), 3200); }
+// Escapes by default (textContent) — server messages carry scraped job title/company.
+// Pass html=true ONLY for trusted static markup (the loading spinner).
+function toast(msg, cls, sticky, html){ const t=$('#toast'); t.className=cls||'';
+  if(html) t.innerHTML=msg; else t.textContent=msg;
+  t.classList.add('show'); clearTimeout(toastT); if(!sticky) toastT=setTimeout(()=>t.classList.remove('show'), 3200); }
 
 // ── filters / list ──
 function uniq(key){ return [...new Set(DATA.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
@@ -421,7 +424,7 @@ function render(){
   // at rest, so count active roles there (keeps the header total == the All badge).
   const hidingStale = state.stage==='all' && !state.q && !state.company;
   const denom = hidingStale ? DATA.filter(r=>r.status!=='stale').length : DATA.length;
-  $('#count').innerHTML = rows.length===denom ? `<b>${rows.length}</b> roles` : `<b>${rows.length}</b> of ${denom} roles`;
+  $('#count').innerHTML = (rows.length===denom ? `<b>${rows.length}</b> roles` : `<b>${rows.length}</b> of ${denom} roles`) + ` · ${esc(GEN)}`;
   $('#list').innerHTML = rows.length ? rows.map((r,i)=>rowHtml(r,i)).join('')
     : '<div class="empty" style="padding:60px 20px">No roles match.</div>';
   $('#list').querySelectorAll('.row').forEach(el=>el.onclick=()=>selectRow(el.dataset.url));

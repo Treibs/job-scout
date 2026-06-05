@@ -25,13 +25,18 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="job-scout-news", description=__doc__)
     ap.add_argument("--config", default="config/search.yaml")
     ap.add_argument("--no-render", action="store_true", help="Pull only; don't render the page.")
+    ap.add_argument("--enrich-missing", nargs="?", const=0, type=int, default=None, metavar="N",
+                    help="Re-summarize cached items missing the 2-paragraph summary (optional limit N).")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
-    summary = pipeline.run(cfg)
+    if args.enrich_missing is not None:
+        summary = pipeline.enrich_missing(cfg, limit=args.enrich_missing or None)
+    else:
+        summary = pipeline.run(cfg)
     print(json.dumps(summary, indent=2))
 
-    if not args.no_render and summary.get("enabled"):
+    if not args.no_render and (summary.get("enabled") or "enriched" in summary):
         from job_scout.sinks import news_report
         out = news_report.render()
         print(f"rendered {out}")

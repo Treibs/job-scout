@@ -167,12 +167,17 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 def _load_env() -> EnvCfg:
     proxies = [p.strip() for p in (os.getenv("PROXY_URLS") or "").split(",") if p.strip()]
+    # Normalize defensively: an unknown JOB_SCOUT_SINK (e.g. the typo "sheets")
+    # should fall back to csv, not crash the whole run via a Literal ValidationError.
+    sink = (os.getenv("JOB_SCOUT_SINK") or "csv").strip().lower()
+    if sink not in ("csv", "google_sheets"):
+        sink = "csv"
     return EnvCfg(
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
         google_service_account_json=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
         sheet_id=os.getenv("SHEET_ID"),
         proxy_urls=proxies,
-        sink=(os.getenv("JOB_SCOUT_SINK") or "csv").strip().lower(),
+        sink=sink,
         jobs_csv_path=os.getenv("JOBS_CSV_PATH"),
     )
 

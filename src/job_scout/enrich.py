@@ -113,12 +113,16 @@ def enrich_descriptions(jobs: list[Job], config, fetch_fn=None) -> list[Job]:
 
     fetch_fn = fetch_fn or linkedin_jd.fetch_description
     fetched = 0
-    for j in to_fetch:
+    for i, j in enumerate(to_fetch):
         desc = fetch_fn(j.url)
         if desc:
             j.description = desc
             cache[j.id] = desc
             fetched += 1
+        # Pace EVERY request, not just successes — a 429/block returns None, and we
+        # must keep backing off then (skipping the delay would hammer LinkedIn exactly
+        # when it's throttling). No trailing sleep after the last item.
+        if i < len(to_fetch) - 1:
             _delay()
 
     if fetched:
