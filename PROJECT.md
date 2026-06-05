@@ -88,45 +88,43 @@ job-scout/
 ├── .gitignore                  # ignores resume + real configs + secrets
 ├── .env.example
 ├── config/
-│   ├── search.example.yaml     # what/where to search, filters
+│   ├── search.example.yaml     # what/where to search, filters, target_sectors
 │   ├── companies.example.yaml  # target employers + ATS slugs
 │   ├── scoring.example.yaml    # rubric dimensions + weights
-│   └── sources.example.yaml    # which sources on/off, per-source params
-├── resume/
-│   └── resume.example.md       # user drops their real resume.md here (git-ignored)
-├── src/
-│   └── job_scout/
-│       ├── __init__.py
-│       ├── pipeline.py         # run_pipeline(config) — the single entry point
-│       ├── config.py           # load + validate config, env vars
-│       ├── models.py           # Job dataclass / pydantic schema
-│       ├── sources/
-│       │   ├── __init__.py
-│       │   ├── base.py         # Source protocol; safe_fetch() wrapper
-│       │   ├── jobspy_source.py
-│       │   └── ats/
-│       │       ├── greenhouse.py
-│       │       ├── lever.py
-│       │       ├── ashby.py
-│       │       ├── smartrecruiters.py
-│       │       └── workday.py
-│       ├── normalize.py
-│       ├── dedupe.py
-│       ├── score.py
-│       └── sinks/
-│           ├── google_sheets.py
-│           └── state.py
+│   ├── sources.example.yaml    # which sources on/off, per-source params
+│   └── news.example.yaml       # news queries + sources + relevance threshold
+├── resume/resume.example.md    # user drops their real resume.md here (git-ignored)
+├── data/                       # git-ignored: linkedin_connections.csv (PII)
+├── src/job_scout/
+│   ├── pipeline.py             # run_pipeline(config) — the single entry point
+│   ├── config.py  models.py  normalize.py  dedupe.py  enrich.py  ledger.py
+│   ├── score.py                # LLM fit-scoring vs the resume
+│   ├── strategist.py           # the adaptive-discovery "thought"
+│   ├── ingest.py               # paste-a-URL ingest + SSRF-safe fetch_public
+│   ├── connections.py          # LinkedIn connections overlay
+│   ├── _jsonutil.py            # shared LLM-JSON extraction
+│   ├── sources/
+│   │   ├── base.py  jobspy_source.py  linkedin_jd.py
+│   │   └── ats/                # greenhouse, lever, ashby, smartrecruiters,
+│   │                           #   workday, _common (shared helpers)
+│   ├── news/                   # the news subsystem
+│   │   ├── sources.py          # Google News RSS + GDELT + SearxNG
+│   │   ├── extract.py          # trafilatura full-text (SSRF-safe)
+│   │   ├── score.py            # relevance gate + 2-paragraph summary
+│   │   ├── store.py            # state/news.json upsert (preserves feedback)
+│   │   └── pipeline.py         # gather → dedupe → score → store
+│   └── sinks/
+│       ├── csv_file.py         # default local CSV tracker (upsert)
+│       ├── html_report.py      # the Jobs CRM dashboard
+│       ├── news_report.py      # the News board
+│       ├── google_sheets.py  state.py
 ├── scripts/
-│   ├── run.py                  # CLI: python scripts/run.py --config config/search.yaml
-│   └── setup_sheet.py          # one-time: create/format the tracker sheet
-├── state/                      # committed back by the cron
-│   ├── seen_hashes.json
+│   ├── run.py  news.py  serve.py  report.py  strategist.py  setup_sheet.py
+├── state/                      # git-ignored runtime
+│   ├── seen_hashes.json  discovery.json  news.json  linkedin_jd_cache.json
 │   └── snapshot.sqlite
 ├── tests/
-└── .github/
-    └── workflows/
-        ├── daily.yml           # the cron
-        └── on_demand.yml       # workflow_dispatch (manual / API trigger)
+└── .github/workflows/{daily.yml, on_demand.yml}
 ```
 
 `.gitignore` must include: `resume/resume.md`, `config/*.yaml` (but NOT `*.example.yaml`),
