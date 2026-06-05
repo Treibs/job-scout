@@ -116,6 +116,26 @@ class SourcesCfg(BaseModel):
     ats: AtsCfg = Field(default_factory=AtsCfg)
 
 
+# ── news.yaml ───────────────────────────────────────────────────────────────
+class NewsSourcesCfg(BaseModel):
+    google_news: bool = True
+    gdelt: bool = True
+    searxng: bool = False
+    searxng_url: str = "http://127.0.0.1:8000"
+
+
+class NewsCfg(BaseModel):
+    enabled: bool = True
+    # Role/domain trend phrases AND sector queries to search. Each becomes one
+    # query per enabled source. If empty, falls back to terms from target_sectors.
+    queries: list[str] = Field(default_factory=list)
+    sources: NewsSourcesCfg = Field(default_factory=NewsSourcesCfg)
+    freshness_hours: int = 96
+    max_per_query: int = 20
+    relevance_threshold: float = 0.6
+    model: str = "MiniMax-M2.5-highspeed"
+
+
 # ── env ─────────────────────────────────────────────────────────────────────
 class EnvCfg(BaseModel):
     anthropic_api_key: str | None = None
@@ -134,6 +154,7 @@ class Config(BaseModel):
     scoring: ScoringCfg
     sources: SourcesCfg
     env: EnvCfg
+    news: NewsCfg = Field(default_factory=NewsCfg)
     resume_text: str = ""
     config_dir: str = "config"
 
@@ -170,6 +191,7 @@ def load_config(search_path: str | Path, resume_path: str | Path | None = None) 
         scoring=ScoringCfg(**_read_yaml(cfg_dir / "scoring.yaml")),
         sources=SourcesCfg(**_read_yaml(cfg_dir / "sources.yaml")),
         env=_load_env(),
+        news=NewsCfg(**_read_yaml(cfg_dir / "news.yaml")),
         resume_text=resume_text,
         config_dir=str(cfg_dir),
     )
