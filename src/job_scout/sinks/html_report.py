@@ -109,6 +109,11 @@ _TEMPLATE = r"""<!DOCTYPE html>
     background:linear-gradient(180deg,rgba(18,20,25,.7),transparent)}
   .brand{font-family:var(--mono);font-weight:700;font-size:19px;letter-spacing:-.5px;white-space:nowrap}
   .brand .d{color:var(--amber)}
+  .nav{display:flex;gap:6px}
+  .nav a{font-family:var(--mono);font-size:12px;letter-spacing:.4px;padding:7px 13px;border-radius:9px;
+    border:1px solid var(--line2);background:var(--bg3);color:var(--ink-dim)}
+  .nav a:hover{color:var(--ink);text-decoration:none;border-color:var(--amber-dim)}
+  .nav a.on{background:var(--bg4);color:var(--amber);border-color:var(--amber-dim)}
   .cmd{flex:1;display:flex;gap:8px;align-items:center;max-width:760px}
   .cmd .in{flex:1;position:relative;display:flex;align-items:center}
   .cmd .in .pre{position:absolute;left:13px;color:var(--ink-faint);font-family:var(--mono);font-size:13px}
@@ -258,6 +263,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <header>
   <div class="brand">JOB<span class="d">/</span>SCOUT</div>
+  <div class="nav"><a class="on" href="/">Jobs</a><a id="navNews" href="/news">News</a></div>
   <div class="cmd">
     <div class="in"><span class="pre">⌘</span>
       <input id="cmd" placeholder="paste a job link, or a company careers URL…" autocomplete="off">
@@ -474,7 +480,8 @@ function renderDetail(){
 
 // ── wire up ──
 function setConn(){ const c=$('#conn'); if(SERVED){ c.classList.add('live'); $('#connt').textContent='live'; }
-  else { $('#addJob').disabled=true; $('#addCo').disabled=true; } }
+  else { $('#addJob').disabled=true; $('#addCo').disabled=true;
+    const nn=$('#navNews'); if(nn) nn.setAttribute('href','news.html'); } }
 $('#q').oninput=e=>{state.q=e.target.value.trim().toLowerCase();render()};
 $('#company').onchange=e=>{state.company=e.target.value;render()};
 $('#source').onchange=e=>{state.source=e.target.value;render()};

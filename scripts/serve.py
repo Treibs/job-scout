@@ -11,11 +11,13 @@ Deliberately localhost-ONLY (binds 127.0.0.1) and stdlib-only — no Flask, no d
     python scripts/serve.py            # http://127.0.0.1:8765/
 
 Routes:
-    GET  /            -> regenerate + serve output/jobs.html
-    POST /status      -> {"apply_url","status"}                      (back-compat)
-    POST /update      -> {"apply_url","status"?,"notes"?,"applied_on"?}
-    POST /add-company -> {"url": "<careers page URL>"}  parse ATS, verify, watch it
-    POST /add-job     -> {"url": "<job posting URL>"}   scrape + score + shortlist
+    GET  /             -> regenerate + serve output/jobs.html
+    GET  /news         -> regenerate + serve output/news.html
+    POST /status       -> {"apply_url","status"}                      (back-compat)
+    POST /update       -> {"apply_url","status"?,"notes"?,"applied_on"?}
+    POST /add-company  -> {"url": "<careers page URL>"}  parse ATS, verify, watch it
+    POST /add-job      -> {"url": "<job posting URL>"}   scrape + score + shortlist
+    POST /news-feedback-> {"url","useful"?,"valuable"?,"status"?,"notes"?}
 """
 
 from __future__ import annotations
@@ -34,10 +36,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from job_scout.models import SHEET_COLUMNS, VALID_STATUSES, job_to_row  # noqa: E402
-from job_scout.sinks import html_report  # noqa: E402
+from job_scout.news import store as news_store  # noqa: E402
+from job_scout.sinks import html_report, news_report  # noqa: E402
 
 CSV_PATH = "output/jobs.csv"
 HTML_PATH = "output/jobs.html"
+NEWS_HTML = "output/news.html"
+NEWS_STORE = "state/news.json"
 CONFIG_PATH = "config/search.yaml"
 
 # Statuses the dashboard may set (the pipeline + exits; not "new"/"stale").
@@ -51,6 +56,7 @@ _EDITABLE = {"status", "notes", "applied_on"}
 # full re-scan, or add a cross-process file lock if you run both at once.
 _CSV_LOCK = threading.RLock()
 _render_state = {"csv_mtime": None}
+_news_render_state = {"mtime": None}
 
 
 # ── CSV helpers (pure + importable) ──────────────────────────────────────────
@@ -148,6 +154,20 @@ def _ensure_html() -> bool:
         return True
 
 
+def _ensure_news_html() -> bool:
+    """Render output/news.html when the news store changed (or first time)."""
+    with _CSV_LOCK:
+        try:
+            mtime = os.path.getmtime(NEWS_STORE)
+        except OSError:
+            mtime = None  # store may not exist yet — still render an empty-state page
+        if _news_render_state["mtime"] == mtime and pathlib.Path(NEWS_HTML).exists():
+            return True
+        news_report.render()  # always writes (empty feed -> empty state)
+        _news_render_state["mtime"] = mtime
+        return True
+
+
 # ── actions that need job_scout config / network ─────────────────────────────
 def _config():
     from job_scout.config import load_config
@@ -210,11 +230,17 @@ class _Handler(BaseHTTPRequestHandler):
             return None
 
     def do_GET(self):  # noqa: N802
-        if self.path != "/":
-            return self._json(404, {"ok": False, "error": "not found"})
-        if not _ensure_html():
-            return self._json(404, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
-        body = pathlib.Path(HTML_PATH).read_bytes()
+        if self.path == "/":
+            if not _ensure_html():
+                return self._json(404, {"ok": False, "error": f"no CSV at {CSV_PATH}"})
+            return self._serve_html(HTML_PATH)
+        if self.path == "/news":
+            _ensure_news_html()
+            return self._serve_html(NEWS_HTML)
+        return self._json(404, {"ok": False, "error": "not found"})
+
+    def _serve_html(self, path):
+        body = pathlib.Path(path).read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -248,6 +274,15 @@ class _Handler(BaseHTTPRequestHandler):
         if route == "/add-job":
             res = add_job((data.get("url") or "").strip())
             return self._json(200 if res["ok"] else 400, res)
+
+        if route == "/news-feedback":
+            url = (data.get("url") or "").strip()
+            if not url:
+                return self._json(400, {"ok": False, "error": "missing url"})
+            fields = {k: data[k] for k in ("useful", "valuable", "status", "notes") if k in data}
+            ok = news_store.update_feedback(url, fields, NEWS_STORE)
+            return self._json(200 if ok else 404,
+                              {"ok": ok} if ok else {"ok": False, "error": "unknown url"})
 
         return self._json(404, {"ok": False, "error": "not found"})
 
