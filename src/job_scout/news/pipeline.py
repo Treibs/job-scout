@@ -13,7 +13,7 @@ from rapidfuzz import fuzz
 
 from . import sources as S
 from . import store as STORE
-from .score import score_articles
+from .score import score_relevance, summarize
 
 log = logging.getLogger("job_scout.news.pipeline")
 
@@ -57,7 +57,7 @@ def dedupe(articles: list[dict]) -> list[dict]:
 
 
 def run(config, store_path=None) -> dict:
-    """Full run. Returns a summary dict."""
+    """Full run: gather -> dedupe -> relevance gate -> (kept) extract + summarize -> store."""
     if not config.news.enabled:
         return {"enabled": False}
     raw = gather(config)
@@ -65,9 +65,23 @@ def run(config, store_path=None) -> dict:
     store = STORE.load(store_path)
     seen = STORE.seen_urls(store)
     fresh = [a for a in deduped if a["url"] not in seen]
-    scored = score_articles(fresh, config)
+    score_relevance(fresh, config)
     threshold = config.news.relevance_threshold
-    kept = [a for a in scored if a.get("relevance") is None or a["relevance"] >= threshold]
+    kept = [a for a in fresh if a.get("relevance") is None or a["relevance"] >= threshold]
+    summarize(kept, config)  # extract full text + 2-paragraph summary for survivors only
     STORE.upsert(store, kept, store_path)
     return {"enabled": True, "fetched": len(raw), "deduped": len(deduped),
             "new": len(fresh), "kept": len(kept), "total": len(store.get("items", {}))}
+
+
+def enrich_missing(config, store_path=None, limit=None) -> dict:
+    """Upgrade already-cached items that predate the 2-paragraph summary (no
+    ``body_text`` yet): extract + summarize them, preserving everything else."""
+    store = STORE.load(store_path)
+    todo = [it for it in store.get("items", {}).values() if "body_text" not in it]
+    if limit:
+        todo = todo[:limit]
+    if todo:
+        summarize(todo, config)  # mutates the dicts (they're refs into the store)
+        STORE.save(store, store_path)
+    return {"enriched": len(todo)}

@@ -103,20 +103,63 @@ def test_build_queries_uses_config_then_fallback():
     assert pipeline.build_queries(cfg2) == ["AI banking", "AI manufacturing"]
 
 
-def test_render_writes_feed(tmp_path):
+def test_render_two_pane(tmp_path):
     store_p = tmp_path / "news.json"
     news_store.save({"items": {"u1": {
         "url": "https://example.com/x", "title": "AI governance goes mainstream",
         "source": "Reuters", "published": "2026-06-04T10:00:00Z", "relevance": 0.82,
-        "summary": "Boards push AI governance.", "why_relevant": "ties to your AI leadership focus",
+        "summary": "Boards are formalizing AI oversight this quarter.\n\n"
+                   "For enterprise leaders this signals budget shifting toward governance.",
+        "body_text": "The full extracted article body. " * 12,
         "topic": "role-trend", "status": "new"}}}, store_p)
-    out = news_report.render(store_path=store_p, html_path=tmp_path / "news.html")
-    html = out.read_text(encoding="utf-8")
+    html = news_report.render(store_path=store_p, html_path=tmp_path / "news.html").read_text(encoding="utf-8")
     assert "AI governance goes mainstream" in html
-    assert 'href="/news"' in html and ">Jobs<" in html  # the nav
-    assert "ties to your AI leadership focus" in html
+    assert 'href="/news"' in html and ">Jobs<" in html          # Jobs<->News nav
+    assert 'id="detail"' in html and 'class="app"' in html      # two-pane layout
+    assert "Boards are formalizing AI oversight" in html        # summary paragraph 1
+    assert "budget shifting toward governance" in html          # summary paragraph 2
+    assert "Full article text" in html                          # collapsible full-text section
+    assert 'class="why"' not in html                            # the "Why" section is gone
 
 
 def test_render_empty_state(tmp_path):
     out = news_report.render(store_path=tmp_path / "absent.json", html_path=tmp_path / "news.html")
     assert "No news yet" in out.read_text(encoding="utf-8")
+
+
+def test_extract_rejects_non_public_and_non_url():
+    from job_scout.news import extract
+    assert extract.extract_text("http://127.0.0.1/x") == ""   # SSRF guard, no network
+    assert extract.extract_text("http://10.0.0.5/a") == ""
+    assert extract.extract_text("not a url") == ""
+    assert extract.extract_text("") == ""
+
+
+def test_fetch_public_blocks_internal_without_connecting():
+    # _resolve_public_ip rejects loopback/private before any socket connect.
+    from job_scout import ingest
+    assert ingest._resolve_public_ip("127.0.0.1") is None
+    assert ingest._resolve_public_ip("10.0.0.5") is None
+    assert ingest._resolve_public_ip("8.8.8.8") == "8.8.8.8"   # public literal allowed
+    assert ingest.fetch_public("http://127.0.0.1:9/") is None  # never attempts the connect
+    assert ingest.fetch_public("http://169.254.169.254/latest/") is None
+
+
+def test_relevance_failure_drops_when_keyed(monkeypatch):
+    """With an API key present, an unparseable/failed score must drop (0.0), not
+    slip through the gate as None (which is the no-key digest 'keep all')."""
+    from types import SimpleNamespace
+    from job_scout.news import score
+
+    class _Msgs:
+        @staticmethod
+        def create(**kw):
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text="not json at all")])
+
+    monkeypatch.setattr(score, "_client", lambda cfg: SimpleNamespace(messages=_Msgs()))
+    cfg = SimpleNamespace(env=SimpleNamespace(anthropic_api_key="k"),
+                          news=SimpleNamespace(model="m", queries=[]),
+                          search=SimpleNamespace(target_sectors=""))
+    arts = [{"title": "X", "snippet": "y", "url": "https://e.test/1"}]
+    score.score_relevance(arts, cfg)
+    assert arts[0]["relevance"] == 0.0   # keyed + failed -> drop, not keep

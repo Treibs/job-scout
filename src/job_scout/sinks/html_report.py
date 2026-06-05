@@ -64,10 +64,12 @@ def render(csv_path, html_path=None, generated_at: str | None = None,
     data_json = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
     generated = generated_at or datetime.now().strftime("%b %d, %Y · %H:%M")
 
+    # Replace the static token FIRST (author-controlled template), then inject the
+    # data LAST — so row data containing "__GENERATED__" can't be clobbered.
     out = (
         _TEMPLATE
-        .replace("/*__DATA__*/null", data_json)
         .replace("__GENERATED__", generated)
+        .replace("/*__DATA__*/null", data_json)
     )
 
     tmp = html_path.with_suffix(html_path.suffix + ".tmp")
