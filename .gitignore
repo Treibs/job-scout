@@ -28,9 +28,11 @@ output/
 *.png
 *.jpg
 *.jpeg
-# the one intentional, curated README asset (gitignore has no inline comments,
-# so the negation must be on its own line)
+# intentional, curated README assets only (all DEMO data — never real).
+# gitignore has no inline comments, so each negation is on its own line.
 !docs/dashboard.png
+!docs/news.png
+!docs/connections.png
 
 # ── scratch dirs for building media (screenshots, audio, slides) ──────────────
 .vidwork/

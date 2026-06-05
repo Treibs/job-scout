@@ -27,13 +27,16 @@ templates.
   any company's official ATS feed (Greenhouse, Lever, Ashby, SmartRecruiters, Workday).
 - **LLM fit-scoring vs your resume** — a weighted rubric (your dimensions), plus
   distilled **day-to-day responsibilities** and a **company blurb** per role.
-- **A two-pane CRM dashboard** — pipeline (Interested → Applied → Interview →
-  Offer), notes, filters, and **add-from-link** (paste a job URL to scrape+score
-  it, or a careers URL to watch a company).
+- **A two-pane CRM dashboard** — a funnel filter (New → Interested → Applied →
+  Interview → Offer), notes, search, and **add-from-link** (paste a job URL to
+  scrape+score it, or a careers URL to watch a company).
 - **A feedback loop** — a *strategist* studies what scores well and what you mark
   interested, then proposes new keywords/companies under a resume-fit guardrail.
 - **Warm-intro overlay** — optionally drop in your LinkedIn connections export to
   see **who you know at each company** (a `🤝` chip, a filter, and a per-role list).
+- **A relevant-news board** — a second two-pane surface that pulls free news
+  (Google News + GDELT), LLM-scores each article against your focus, and shows a
+  2-paragraph summary + the full article text, with a 👍/👎 feedback loop.
 - **Local-first & private** — default sink is a local CSV + self-contained HTML.
   No cloud account required. Your data never leaves the machine.
 
@@ -157,9 +160,10 @@ flowchart LR
   U3 -->|append| ADD[("discovery_additions.yaml")]
 ```
 
-- **Left pane** — a command bar (paste a job link or a careers URL), a segmented
-  **pipeline filter** with live counts, search + company/source/sort, and a role
-  list with heat-mapped score chips.
+- **Left pane** — a command bar (paste a job link or a careers URL), a **funnel
+  filter** with live counts (`All → New → Interested → Applied → Interview →
+  Offer`, where **New** = untagged roles you haven't triaged), search +
+  company/source/sort, and a role list with heat-mapped score chips.
 - **Right pane** — full detail: company blurb, the **pipeline control**
   (Interested → Applied → Interview → Offer, + Pass/Archive; marking *Applied*
   auto-stamps the date), per-dimension fit bars, **day-to-day** bullets, an
@@ -180,13 +184,47 @@ at each company** so you can find a warm intro instead of cold-applying.
 The dashboard then shows, per role: a **`🤝 N`** chip on the card, a **"Know
 someone"** filter, and an **"In your network"** panel listing each person (name ·
 title · when you connected). Company names are normalized and fuzzy-matched, so
-"Caterpillar Inc." finds "Caterpillar" — treat it as a *signal*, not proof (a
+"Globex Inc." finds "Globex" — treat it as a *signal*, not proof (a
 contact may have moved on). The file is **git-ignored personal data and never
 leaves your machine**; with no file present the overlay simply doesn't appear.
 
 > For ad-hoc network questions (dormant ties, relationship summaries) from your
 > export, the [linkedin-network-mcp](https://github.com/0xLT/linkedin-network-mcp)
 > MCP server pairs well — same local, export-based, no-scraping approach.
+
+![Who you know — the connections overlay surfaces contacts at each company](docs/connections.png)
+
+---
+
+## Relevant news
+
+A second two-pane board that keeps you current on the trends and sectors you're
+hunting in — so you walk into recruiter and hiring-manager conversations informed.
+
+![The news board — relevance-scored articles with 2-paragraph summaries](docs/news.png)
+
+```mermaid
+flowchart LR
+  Q["queries<br/>(topics + sectors)"] --> SRC["sources<br/>Google News RSS · GDELT<br/>(+ optional SearxNG)"]
+  SRC --> DD["dedupe<br/>(url + fuzzy title)"]
+  DD --> GATE["relevance gate<br/>(LLM, cheap)"]
+  GATE -->|"kept"| SUM["extract + 2-para summary<br/>(LLM)"]
+  SUM --> NS[("state/news.json")]
+  NS --> PAGE["news.html<br/>two-pane feed"]
+  PAGE -->|"👍 / 👎 · 💎 · 🔖"| NS
+```
+
+- **Free-first sourcing** — Google News RSS + GDELT, no API keys (optional local
+  SearxNG). Same ToS-defensible posture as the job sources.
+- **Tuned to your focus** — the LLM scores each article for relevance to your
+  domain/role trends and target sectors, keeps the ones above a threshold, and
+  writes a 2-paragraph summary (from the article's full text when it can fetch it,
+  falling back to the headline + snippet otherwise).
+- **A feedback loop** — mark articles 👍 relevant / 💎 valuable / 🔖 save / ✕ dismiss;
+  it persists locally and seeds future query tuning.
+- Run it with `python scripts/news.py` (daily-digest cadence). The cache lives in
+  `state/news.json` (git-ignored); the page renders to `output/news.html` and is
+  served at `/news`.
 
 ---
 
@@ -287,7 +325,8 @@ Respectful scraping is ban-resistant scraping.
 | Script | What it does |
 |--------|--------------|
 | `scripts/run.py` | The pipeline (gather → score → write tracker + dashboard + ledger). |
-| `scripts/serve.py` | Localhost CRM server — persist status/notes, scrape a job link, watch a company. |
+| `scripts/news.py` | Pull the free news sources → dedupe → score → cache, then render `output/news.html`. |
+| `scripts/serve.py` | Localhost server — the Jobs CRM + News board; persist status/notes/feedback, scrape a job link, watch a company. |
 | `scripts/report.py` | Regenerate `output/jobs.html` from the CSV on demand. |
 | `scripts/strategist.py` | Digest the ledger + resume → propose & apply guarded search changes. |
 | `scripts/setup_sheet.py` | One-time Google Sheet header init (Sheets sink only). |
