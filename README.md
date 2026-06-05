@@ -8,7 +8,7 @@ tracker — a local **two-pane CRM dashboard** (CSV-backed) or Google Sheets —
 schedule and on demand. Over time it **learns from what you engage with and
 re-tunes its own search**.
 
-https://github.com/user-attachments/assets/55ef7307-aa1b-4ee8-b252-b66b64684be0
+https://github.com/user-attachments/assets/c1b39013-2b8d-4b38-8663-190d9535e01c
 
 > **It is discovery + scoring + a tracker. It is *not* an auto-applier.**
 > job-scout never logs in, fills a form, or submits an application. It finds
