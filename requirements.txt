@@ -11,3 +11,4 @@ google-auth
 pyyaml
 python-dotenv
 defusedxml
+trafilatura

@@ -22,7 +22,7 @@ import logging
 import re
 import socket
 from html import unescape
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from .models import Job, STATUS_INTERESTED
 from .normalize import _provisional_id
@@ -73,29 +73,98 @@ def _meta(html: str, key: str) -> str | None:
     return _clean(m.group(1)) if m else None
 
 
-def _is_public_url(url: str) -> bool:
-    """True only if ``url``'s host resolves entirely to public IPs. Blocks SSRF —
-    e.g. cloud metadata (169.254.169.254), localhost, and RFC1918 ranges — when a
-    user-supplied URL is fetched server-side (via the dashboard's add-job/company).
-    Fails closed (returns False) on any resolution error."""
+def _resolve_public_ip(host: str) -> str | None:
+    """Resolve ``host`` and return ONE IP only if EVERY resolved address is public
+    (blocks metadata/loopback/RFC1918/etc., and round-robin sets that mix public +
+    private). Returns None on any failure or if any address is non-public."""
     try:
-        host = (urlparse(url).hostname or "").strip()
-        if not host:
-            return False
         infos = socket.getaddrinfo(host, None)
-    except (socket.gaierror, UnicodeError, ValueError, OSError):
-        return False
+    except (socket.gaierror, UnicodeError, OSError):
+        return None
     if not infos:
-        return False
+        return None
+    chosen = None
     for info in infos:
         try:
             addr = ipaddress.ip_address(info[4][0])
         except ValueError:
-            return False
+            return None
         if (addr.is_private or addr.is_loopback or addr.is_link_local
                 or addr.is_reserved or addr.is_unspecified or addr.is_multicast):
-            return False
-    return True
+            return None
+        chosen = chosen or info[4][0]
+    return chosen
+
+
+def _is_public_url(url: str) -> bool:
+    """True only if ``url``'s host resolves entirely to public IPs. Blocks SSRF —
+    cloud metadata (169.254.169.254), localhost, RFC1918 — for server-side fetches."""
+    host = (urlparse(url).hostname or "").strip() if url else ""
+    return bool(host) and _resolve_public_ip(host) is not None
+
+
+def _pinned_adapter(host: str, ip: str):
+    """A requests HTTPAdapter that connects to a fixed (pre-validated) IP while
+    keeping the original hostname for the Host header, TLS SNI, and cert validation.
+    Closes the DNS-rebinding TOCTOU: the IP we validated is the IP we connect to."""
+    import requests
+
+    bracket = f"[{ip}]" if ":" in ip else ip
+
+    class _PinnedAdapter(requests.adapters.HTTPAdapter):
+        def send(self, request, **kw):
+            p = urlparse(request.url)
+            port = f":{p.port}" if p.port else ""
+            request.url = urlunparse((p.scheme, bracket + port, p.path, p.params, p.query, p.fragment))
+            request.headers["Host"] = host
+            return super().send(request, **kw)
+
+        def init_poolmanager(self, connections, maxsize, block=False, **kw):
+            kw["server_hostname"] = host    # SNI
+            kw["assert_hostname"] = host    # cert hostname check
+            return super().init_poolmanager(connections, maxsize, block=block, **kw)
+
+    return _PinnedAdapter()
+
+
+def fetch_public(url, *, headers=None, timeout=_TIMEOUT, max_redirects=5):
+    """SSRF-safe GET: re-validates EVERY redirect hop is a public host AND pins the
+    connection to the exact validated IP (so a public URL can't 30x-bounce or DNS-
+    rebind into an internal address). Ignores proxy env. Returns the final 200
+    ``requests.Response`` or None. Never raises."""
+    try:
+        import requests
+    except Exception as e:  # noqa: BLE001
+        log.warning("requests unavailable: %s", e)
+        return None
+    cur = (url or "").strip()
+    for _ in range(max_redirects + 1):
+        if not cur.lower().startswith(("http://", "https://")):
+            return None
+        host = (urlparse(cur).hostname or "").strip()
+        ip = _resolve_public_ip(host) if host else None
+        if not ip:
+            return None
+        sess = requests.Session()
+        sess.trust_env = False  # ignore proxy env vars (no surprise egress)
+        adapter = _pinned_adapter(host, ip)
+        sess.mount("http://", adapter)
+        sess.mount("https://", adapter)
+        try:
+            r = sess.get(cur, headers=headers or _HEADERS, timeout=timeout, allow_redirects=False)
+        except requests.RequestException as e:  # noqa: BLE001
+            log.info("fetch_public error for %s: %s", cur, e)
+            return None
+        finally:
+            sess.close()
+        if r.is_redirect or r.is_permanent_redirect:
+            loc = r.headers.get("Location")
+            if not loc:
+                return None
+            cur = urljoin(cur, loc)  # resolved against the hostname URL; re-validated next loop
+            continue
+        return r if r.status_code == 200 else None
+    return None  # too many redirects
 
 
 def ingest_url(url: str, fetch=None) -> Job | None:
@@ -187,17 +256,8 @@ def _from_ats(url: str, host: str) -> dict | None:
 
 
 def _fetch(url: str) -> str | None:
-    try:
-        import requests
-    except Exception as e:  # noqa: BLE001
-        log.warning("requests unavailable: %s", e)
-        return None
-    try:
-        r = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
-        return r.text if r.status_code == 200 else None
-    except Exception as e:  # noqa: BLE001
-        log.info("ingest fetch failed for %s: %s", url, e)
-        return None
+    r = fetch_public(url)  # redirect-validated, SSRF-safe
+    return r.text if r is not None else None
 
 
 def _from_jsonld(html: str, url: str) -> dict | None:
