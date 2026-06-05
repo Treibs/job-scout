@@ -119,6 +119,8 @@ def match_company(company: str | None, index: dict[str, list[dict]]) -> list[dic
         score = fuzz.token_set_ratio(key, cand)
         if score > best_score:
             best_key, best_score = cand, score
+            if best_score >= 100:
+                break  # perfect match — nothing can beat it, stop scanning
     return index[best_key] if best_key and best_score >= _FUZZY_THRESHOLD else []
 
 

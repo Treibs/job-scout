@@ -168,3 +168,49 @@ def test_append_job_adds_and_upserts(tmp_path):
     assert len(rows) == 2  # still no dup
     assert by_url["https://example.com/manual"]["title"] == "Manual Role v2"
     assert by_url["https://example.com/manual"]["status"] == "applied"  # preserved
+
+
+# ── POST action handlers (add_job / add_company) ─────────────────────────────
+def test_add_job_handler(monkeypatch, tmp_path):
+    """add_job: scrape -> score (best-effort) -> append; returns ok/row or an error."""
+    from job_scout import ingest, score
+    from job_scout.models import Job
+    job = Job(id="m1", title="Director, AI", company="Globex", url="https://e.test/j", source="manual")
+    monkeypatch.setattr(ingest, "ingest_url", lambda url: job)
+    monkeypatch.setattr(score, "score_one_no_filter", lambda jobs, cfg: jobs)
+    monkeypatch.setattr(serve, "_config", lambda: object())
+    csv_path = tmp_path / "jobs.csv"
+    _write_csv(csv_path, [])
+    monkeypatch.setattr(serve, "CSV_PATH", str(csv_path))
+
+    res = serve.add_job("https://e.test/j")
+    assert res["ok"] is True and res["row"]["title"] == "Director, AI"
+    # the row was actually written
+    _, rows = _read_csv(csv_path)
+    assert any(r["apply_url"] == "https://e.test/j" for r in rows)
+
+    monkeypatch.setattr(ingest, "ingest_url", lambda url: None)  # unreadable URL
+    assert serve.add_job("nope")["ok"] is False
+
+
+def test_add_company_handler(monkeypatch):
+    """add_company: parse ATS -> verify it returns jobs -> add to the watch list."""
+    from job_scout import ingest, strategist
+    from job_scout.sources import ats
+    monkeypatch.setattr(ingest, "parse_company_url",
+                        lambda url: {"name": "Globex", "ats": "greenhouse", "slug": "globex"})
+    monkeypatch.setattr(serve, "_config", lambda: object())
+    monkeypatch.setitem(ats.ATS_FETCHERS, "greenhouse", lambda company, cfg: [{"title": "Some role"}])
+    monkeypatch.setattr(strategist, "apply_changes", lambda *a, **k: "config/discovery_additions.yaml")
+
+    res = serve.add_company("https://boards.greenhouse.io/globex")
+    assert res["ok"] is True and res["jobs_found"] == 1 and res["company"]["name"] == "Globex"
+
+    monkeypatch.setattr(ingest, "parse_company_url", lambda url: None)  # not an ATS URL
+    assert serve.add_company("https://example.com")["ok"] is False
+
+    # ATS returns no jobs -> not added
+    monkeypatch.setattr(ingest, "parse_company_url",
+                        lambda url: {"name": "Empty", "ats": "greenhouse", "slug": "empty"})
+    monkeypatch.setitem(ats.ATS_FETCHERS, "greenhouse", lambda company, cfg: [])
+    assert serve.add_company("https://boards.greenhouse.io/empty")["ok"] is False

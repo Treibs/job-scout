@@ -10,7 +10,6 @@ from __future__ import annotations
 import csv
 from datetime import date
 
-import pytest
 
 from job_scout.config import Config, EnvCfg, SearchCfg, CompaniesCfg, ScoringCfg, SourcesCfg
 from job_scout.models import Job, SHEET_COLUMNS, STATUS_NEW, STATUS_APPLIED, STATUS_STALE

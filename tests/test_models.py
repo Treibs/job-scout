@@ -12,7 +12,6 @@ import pytest
 
 pytest.importorskip("pydantic", reason="pydantic underpins config but models is plain")
 
-from job_scout import models
 from job_scout.models import (
     Job,
     SHEET_COLUMNS,

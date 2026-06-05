@@ -62,4 +62,33 @@ def test_is_public_url_blocks_private_and_metadata():
 def test_ingest_url_refuses_ssrf_target():
     # Real network path (no injected fetch): the SSRF guard must short-circuit to None.
     assert ingest.ingest_url("http://169.254.169.254/latest/meta-data/") is None
+
+
+def test_fetch_public_blocks_redirect_to_internal(monkeypatch):
+    """A public origin that 30x-redirects to an internal host must be refused: the
+    redirect target is re-validated before the next hop."""
+    import requests
+
+    class _Resp:
+        is_redirect = True
+        is_permanent_redirect = False
+        headers = {"Location": "http://169.254.169.254/latest/meta-data/"}
+        status_code = 302
+        text = "x"
+
+    class _Sess:
+        trust_env = True
+
+        def mount(self, *a):
+            pass
+
+        def get(self, url, **kw):
+            return _Resp()        # hop 1 (public 8.8.8.8) redirects internally...
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(requests, "Session", _Sess)
+    # 8.8.8.8 is public so hop 1 proceeds; the link-local redirect target is blocked.
+    assert ingest.fetch_public("http://8.8.8.8/start") is None
     assert ingest.ingest_url("", fetch=lambda u: "x") is None

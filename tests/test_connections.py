@@ -40,6 +40,17 @@ def test_load_connections_missing_file_is_empty(tmp_path):
     assert connections.load_connections(tmp_path / "nope.csv") == []
 
 
+def test_match_company_picks_closest_group():
+    idx = connections.build_index([
+        {"name": "A", "company": "Globex Inc"},                 # norm: globex
+        {"name": "B", "company": "Northwind Trust Corporation"},  # norm: northwind trust
+        {"name": "C", "company": "Acme Foods"},
+    ])
+    assert [p["name"] for p in connections.match_company("Globex", idx)] == ["A"]            # exact-after-normalize
+    assert [p["name"] for p in connections.match_company("Northwind Trust Bank", idx)] == ["B"]  # fuzzy superset
+    assert connections.match_company("Zzz Totally Unrelated", idx) == []                    # below threshold
+
+
 def test_match_company_exact_and_fuzzy(tmp_path):
     p = tmp_path / "c.csv"
     p.write_text(_EXPORT, encoding="utf-8")

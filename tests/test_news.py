@@ -127,6 +127,45 @@ def test_render_empty_state(tmp_path):
     assert "No news yet" in out.read_text(encoding="utf-8")
 
 
+def test_pipeline_run_gates_and_keeps(tmp_path, monkeypatch):
+    """run() gathers -> dedupes -> relevance-gates -> summarizes survivors -> stores."""
+    from types import SimpleNamespace
+
+    arts = [
+        {"title": "keep me", "url": "https://e.test/keep", "source": "S", "published": "", "snippet": ""},
+        {"title": "drop me", "url": "https://e.test/drop", "source": "S", "published": "", "snippet": ""},
+    ]
+    monkeypatch.setattr(pipeline.S, "google_news_rss", lambda q, m, f: [dict(a) for a in arts])
+    monkeypatch.setattr(pipeline.S, "gdelt", lambda q, m, f: [])
+
+    def fake_rel(items, cfg):
+        for a in items:
+            a["relevance"] = 0.9 if "keep" in a["title"] else 0.2
+            a["topic"] = "role-trend"
+        return items
+
+    def fake_sum(items, cfg):
+        for a in items:
+            a["summary"] = "para one\n\npara two"
+            a["body_text"] = ""
+        return items
+
+    monkeypatch.setattr(pipeline, "score_relevance", fake_rel)
+    monkeypatch.setattr(pipeline, "summarize", fake_sum)
+
+    cfg = SimpleNamespace(
+        news=SimpleNamespace(enabled=True, queries=["q"], max_per_query=10, freshness_hours=96,
+                             relevance_threshold=0.6,
+                             sources=SimpleNamespace(google_news=True, gdelt=False, searxng=False, searxng_url="")),
+        search=SimpleNamespace(target_sectors=""))
+    store_p = tmp_path / "news.json"
+    summary = pipeline.run(cfg, store_path=store_p)
+    assert summary["new"] == 2 and summary["kept"] == 1
+    items = news_store.load(store_p)["items"]
+    assert [v["title"] for v in items.values()] == ["keep me"]   # 'drop me' (0.2) gated out
+    assert items["https://e.test/keep"]["summary"].count("\n\n") == 1
+
+
 def test_extract_rejects_non_public_and_non_url():
     from job_scout.news import extract
     assert extract.extract_text("http://127.0.0.1/x") == ""   # SSRF guard, no network
