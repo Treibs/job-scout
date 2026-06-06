@@ -281,8 +281,12 @@ files; copy them to the real (git-ignored) names and edit.
 
 ## Quickstart
 
-The default CSV + dashboard sink needs **no cloud account** — just a resume and an
-LLM key.
+The default CSV + dashboard sink needs **no cloud account** — just a resume and a
+way to score (an API key, **or the Claude Code CLI — no key**).
+
+> **Pointing an agent at this repo?** [`AGENTS.md`](AGENTS.md) is the setup recipe —
+> Claude Code can do most of it, then ask you for the few things only you can give
+> (your resume, a one-line steer, and a key *or* nothing if Claude Code is installed).
 
 ```bash
 git clone https://github.com/Treibs/job-scout.git job-scout
@@ -291,19 +295,21 @@ python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 
 # copy templates (real names are git-ignored), then edit them + paste your resume
-for f in search companies scoring sources; do cp config/$f.example.yaml config/$f.yaml; done
+for f in search companies scoring sources news; do cp config/$f.example.yaml config/$f.yaml; done
 cp resume/resume.example.md resume/resume.md
-cp .env.example .env            # set ANTHROPIC_API_KEY (and ANTHROPIC_BASE_URL if using a compatible endpoint)
+cp .env.example .env            # set ANTHROPIC_API_KEY — or leave it blank to use Claude Code
 
 python scripts/run.py --config config/search.yaml   # scan + score + write the tracker
 python scripts/serve.py                              # open http://127.0.0.1:8765/
 ```
 
-**Secrets** (`.env`): `ANTHROPIC_API_KEY` (scoring; works with any
-Anthropic-compatible endpoint via `ANTHROPIC_BASE_URL`), optional
-`JOB_SCOUT_SINK` (`csv`|`google_sheets`), `JOBS_CSV_PATH`, `PROXY_URLS`, and
-`GOOGLE_SERVICE_ACCOUNT_JSON`/`SHEET_ID` for the Sheets sink. *Scoring degrades
-gracefully — with no key it still gathers, dedupes, and tracks, just unscored.*
+**Scoring provider** (auto-detected): an `ANTHROPIC_API_KEY` (any
+Anthropic-compatible endpoint via `ANTHROPIC_BASE_URL`, e.g. MiniMax) → the SDK;
+otherwise, if the **Claude Code CLI** is installed → it runs scoring through your
+Claude subscription with **no key** (`JOB_SCOUT_LLM_PROVIDER=claude_cli` to force).
+*Scoring also degrades gracefully — with neither, it still gathers, dedupes, and
+tracks, just unscored.* Other `.env`: `JOB_SCOUT_SINK` (`csv`|`google_sheets`),
+`JOBS_CSV_PATH`, `PROXY_URLS`, `GOOGLE_SERVICE_ACCOUNT_JSON`/`SHEET_ID` (Sheets sink).
 
 ---
 

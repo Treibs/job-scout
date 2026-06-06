@@ -69,15 +69,14 @@ def main(argv=None) -> int:
 
     dg = S.digest(cfg, ledger_mod.load(), _load_csv(args.csv))
 
-    key = cfg.env.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-    if not key:
-        print(json.dumps({"digest": dg, "note": "no ANTHROPIC_API_KEY — digest only"}, indent=2))
+    from job_scout import llm  # noqa: E402
+    provider = llm.resolve_provider(cfg)
+    if not llm.available(provider, cfg):
+        print(json.dumps({"digest": dg, "note": "no LLM provider (set ANTHROPIC_API_KEY or install Claude Code) — digest only"}, indent=2))
         return 0
 
-    import anthropic  # lazy
-
-    client = anthropic.Anthropic(api_key=key)
-    proposal = S.propose(dg, cfg.resume_text, client, args.model)
+    proposal = S.propose(dg, cfg.resume_text, model=args.model,
+                         provider=provider, api_key=cfg.env.anthropic_api_key)
 
     if not args.dry_run and (proposal["add_keywords"] or proposal["remove_keywords"]):
         S.apply_changes(

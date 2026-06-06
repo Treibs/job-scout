@@ -190,12 +190,10 @@ def test_relevance_failure_drops_when_keyed(monkeypatch):
     from types import SimpleNamespace
     from job_scout.news import score
 
-    class _Msgs:
-        @staticmethod
-        def create(**kw):
-            return SimpleNamespace(content=[SimpleNamespace(type="text", text="not json at all")])
-
-    monkeypatch.setattr(score, "_client", lambda cfg: SimpleNamespace(messages=_Msgs()))
+    from job_scout import llm
+    monkeypatch.setattr(llm, "resolve_provider", lambda cfg=None, explicit=None: "anthropic")
+    monkeypatch.setattr(llm, "available", lambda provider, cfg=None: True)
+    monkeypatch.setattr(llm, "complete", lambda *a, **k: "not json at all")
     cfg = SimpleNamespace(env=SimpleNamespace(anthropic_api_key="k"),
                           news=SimpleNamespace(model="m", queries=[]),
                           search=SimpleNamespace(target_sectors=""))

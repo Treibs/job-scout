@@ -29,6 +29,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+from . import llm
 from ._jsonutil import extract_json as _extract_json
 from .config import Config
 from .models import Job
@@ -262,44 +263,36 @@ def _llm_score(jobs: list[Job], config: Config) -> list[Job]:
     if not jobs:
         return jobs
 
-    api_key = config.env.anthropic_api_key
-    if not api_key:
-        log.info("LLM scoring skipped: ANTHROPIC_API_KEY not set (returning unscored jobs)")
-        return jobs
-
     dimensions = config.scoring.dimensions
     if not dimensions:
         log.info("LLM scoring skipped: no scoring dimensions configured")
         return jobs
 
-    try:  # lazy import — anthropic is only needed when we actually score
-        import anthropic  # type: ignore
-
-        client = anthropic.Anthropic(api_key=api_key)
-    except Exception as e:  # noqa: BLE001
-        log.warning("anthropic client unavailable (LLM scoring skipped): %s", e)
+    provider = llm.resolve_provider(config)
+    if not llm.available(provider, config):
+        log.info("LLM scoring skipped: no provider (set ANTHROPIC_API_KEY or install Claude Code)")
         return jobs
 
     model = config.scoring.model
     scale = config.scoring.scale or [0, 5]
     scale_lo, scale_hi = scale[0], scale[-1]
     resume = config.resume_text or ""
+    api_key = config.env.anthropic_api_key
 
     def score_one_safe(job: Job) -> dict | None:
         """Score one job, isolating its failure — one bad job never kills the batch."""
         try:
-            return _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job)
+            return _score_one(provider, model, api_key, dimensions, scale_lo, scale_hi, resume, job)
         except Exception as e:  # noqa: BLE001
             log.warning("LLM scoring error for %r: %s", job.title, e)
             return None
 
-    workers = _score_concurrency()
-    log.info("LLM scoring %d job(s) with concurrency %d", len(jobs), workers)
+    workers = llm.concurrency(provider, _score_concurrency())
+    log.info("LLM scoring %d job(s) via %s (concurrency %d)", len(jobs), provider, workers)
 
     if workers == 1:
         results = [(job, score_one_safe(job)) for job in jobs]
     else:
-        # anthropic.Anthropic is safe to share across threads (httpx under the hood).
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = {ex.submit(score_one_safe, job): job for job in jobs}
             results = [(futures[f], f.result()) for f in futures]
@@ -339,25 +332,19 @@ def _apply_score(job: Job, result: dict | None, dimensions, scale_lo, scale_hi) 
     job.company_blurb = str(cb).strip() if cb else None
 
 
-def _score_one(client, model, dimensions, scale_lo, scale_hi, resume, job) -> dict | None:
-    """Prompt the model for one job; parse strict JSON, retry once on failure."""
+def _score_one(provider, model, api_key, dimensions, scale_lo, scale_hi, resume, job) -> dict | None:
+    """Prompt the model for one job; parse strict JSON, retry once on failure.
+    Routes through llm.complete so it works on either provider (API or Claude CLI)."""
     system_prompt, user_prompt = _build_prompts(dimensions, scale_lo, scale_hi, resume, job)
 
     last_err: Exception | None = None
     for attempt in range(2):  # one initial try + one retry on parse failure
         try:
-            resp = client.messages.create(
-                model=model,
-                # Reasoning models (e.g. MiniMax-M2.5) spend tokens on a hidden
-                # `thinking` block before the answer; too low a ceiling and the
-                # run ends mid-thought with no JSON text block. 4096 leaves room
-                # for the reasoning plus the small JSON payload.
-                max_tokens=4096,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            raw = _response_text(resp)
-            parsed = _extract_json(raw)
+            # max_tokens 4096: reasoning models (e.g. MiniMax-M2.5) spend tokens on a
+            # hidden thinking block before the JSON answer — leave room for both.
+            raw = llm.complete(system_prompt, user_prompt, model=model, max_tokens=4096,
+                               provider=provider, api_key=api_key)
+            parsed = _extract_json(raw or "")
             if parsed is not None:
                 return parsed
             last_err = ValueError("no JSON object found in response")
@@ -421,16 +408,6 @@ def _build_prompts(dimensions, scale_lo, scale_hi, resume, job) -> tuple[str, st
         "Return the strict JSON object now."
     )
     return system_prompt, user_prompt
-
-
-def _response_text(resp) -> str:
-    """Concatenate text blocks from an anthropic Messages response."""
-    chunks: list[str] = []
-    for block in getattr(resp, "content", []) or []:
-        text = getattr(block, "text", None)
-        if text:
-            chunks.append(text)
-    return "".join(chunks)
 
 
 

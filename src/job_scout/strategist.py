@@ -28,6 +28,7 @@ from pathlib import Path
 
 import yaml
 
+from . import llm
 from ._jsonutil import extract_json as _extract_json
 
 log = logging.getLogger("job_scout.strategist")
@@ -87,11 +88,11 @@ def _summ(s: dict) -> dict:
 
 
 # ── propose (LLM, guarded) ───────────────────────────────────────────────────
-def propose(digest_data: dict, resume_text: str, client, model: str,
+def propose(digest_data: dict, resume_text: str, *, model: str,
+            provider: str = "anthropic", api_key: str | None = None,
             threshold: float = RELEVANCE_THRESHOLD) -> dict:
-    """Ask the model for guarded changes. ``client`` is an anthropic.Anthropic
-    (or any object with ``messages.create``) — injectable for tests. Returns the
-    parsed proposal, with adds filtered to relevance ≥ threshold."""
+    """Ask the model for guarded changes via the configured provider (API or Claude
+    CLI). Returns the parsed proposal, with adds filtered to relevance ≥ threshold."""
     sectors = digest_data.get("target_sectors") or DEFAULT_TARGET_SECTORS
     system = (
         "You tune a personal job search for ONE candidate. Propose ONLY changes "
@@ -117,16 +118,14 @@ def propose(digest_data: dict, resume_text: str, client, model: str,
         "}"
     )
     user = (
-        "=== RÉSUMÉ ===\n" + resume_text[:6000] + "\n\n"
+        "=== RESUME ===\n" + resume_text[:6000] + "\n\n"
         "=== CURRENT SEARCH + PERFORMANCE (JSON) ===\n"
         + json.dumps(digest_data, ensure_ascii=False)[:12000] +
         "\n\nPropose changes now as strict JSON."
     )
-    resp = client.messages.create(
-        model=model, max_tokens=4096, system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    parsed = _extract_json(_text(resp)) or {}
+    raw = llm.complete(system, user, model=model, max_tokens=4096,
+                       provider=provider, api_key=api_key)
+    parsed = _extract_json(raw or "") or {}
     return _guard(_filter(parsed, threshold), digest_data)
 
 
@@ -221,12 +220,5 @@ def _to_float(v):
         return float(v)
     except (TypeError, ValueError):
         return None
-
-
-def _text(resp) -> str:
-    return "".join(
-        getattr(b, "text", "") for b in getattr(resp, "content", []) or []
-        if getattr(b, "type", None) == "text" or getattr(b, "text", None)
-    )
 
 

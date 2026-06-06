@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
+from .. import llm
 from .._jsonutil import extract_json
 from .extract import extract_text
 from .store import normalize_topic
@@ -27,29 +28,13 @@ _MAX_TOKENS = 4096   # MiniMax is a reasoning model — leave room for its think
 _CONCURRENCY = 6
 
 
-def _client(config):
-    if not config.env.anthropic_api_key:
-        return None
-    try:
-        import anthropic  # type: ignore
-        return anthropic.Anthropic(api_key=config.env.anthropic_api_key)
-    except Exception as e:  # noqa: BLE001
-        log.warning("anthropic unavailable: %s", e)
-        return None
-
-
-def _resp_text(resp) -> str:
-    return "".join(getattr(b, "text", "") for b in getattr(resp, "content", []) or []
-                   if getattr(b, "type", None) == "text" or getattr(b, "text", None))
-
-
 # ── stage 1: relevance gate ──────────────────────────────────────────────────
 def score_relevance(articles: list[dict], config) -> list[dict]:
-    """Attach relevance (0-1) + topic from title+snippet. No key -> relevance None."""
+    """Attach relevance (0-1) + topic from title+snippet. No provider -> relevance None."""
     if not articles:
         return articles
-    client = _client(config)
-    if client is None:
+    provider = llm.resolve_provider(config)
+    if not llm.available(provider, config):
         for a in articles:
             a.setdefault("relevance", None)
             a.setdefault("topic", "other")
@@ -57,27 +42,28 @@ def score_relevance(articles: list[dict], config) -> list[dict]:
 
     model, sectors = config.news.model, (config.search.target_sectors or "")
     topics = ", ".join(config.news.queries or [])
+    api_key = config.env.anthropic_api_key
 
     def one(a):
         try:
-            return _relevance_one(client, model, a, sectors, topics)
+            return _relevance_one(provider, model, api_key, a, sectors, topics)
         except Exception as e:  # noqa: BLE001
             log.warning("relevance error %r: %s", a.get("title"), e)
             return None
 
-    with ThreadPoolExecutor(max_workers=_CONCURRENCY) as ex:
+    with ThreadPoolExecutor(max_workers=llm.concurrency(provider, _CONCURRENCY)) as ex:
         results = list(ex.map(one, articles))
     for a, r in zip(articles, results):
         rel = _clamp(r.get("relevance")) if r else None
-        # A key IS present here, so a failed/unparseable score must DROP (0.0), not
-        # slip through the gate — `relevance is None` is reserved for the no-key
+        # A provider IS available here, so a failed/unparseable score must DROP (0.0),
+        # not slip through the gate — `relevance is None` is reserved for the no-provider
         # digest path above (which intentionally keeps everything).
         a["relevance"] = rel if rel is not None else 0.0
         a["topic"] = normalize_topic(r.get("topic")) if r else "other"
     return articles
 
 
-def _relevance_one(client, model, a, sectors, topics):
+def _relevance_one(provider, model, api_key, a, sectors, topics):
     system = (
         "You gate a career-intelligence news feed for a senior professional. Rate how "
         "RELEVANT an article is to their focus. RELEVANT = domain/role TRENDS (AI leadership, "
@@ -87,39 +73,40 @@ def _relevance_one(client, model, a, sectors, topics):
     )
     user = (f"Topics: {topics}\nTarget sectors: {sectors}\n\nTitle: {a.get('title')}\n"
             f"Source: {a.get('source')}\nSnippet: {a.get('snippet') or '(none)'}\n\nScore as strict JSON.")
-    resp = client.messages.create(model=model, max_tokens=_MAX_TOKENS, system=system,
-                                  messages=[{"role": "user", "content": user}])
-    return extract_json(_resp_text(resp))
+    return extract_json(llm.complete(system, user, model=model, max_tokens=_MAX_TOKENS,
+                                     provider=provider, api_key=api_key) or "")
 
 
 # ── stage 2: extract + 2-paragraph summary ───────────────────────────────────
 def summarize(articles: list[dict], config) -> list[dict]:
     """For each article: best-effort full-text extraction + a 2-paragraph summary,
-    set in place (``body_text`` + ``summary``). Works without a key (snippet/body
+    set in place (``body_text`` + ``summary``). Works without a provider (snippet/body
     fallback for the summary)."""
     if not articles:
         return articles
-    client = _client(config)
+    provider = llm.resolve_provider(config)
+    has = llm.available(provider, config)
     model, sectors = config.news.model, (config.search.target_sectors or "")
     topics = ", ".join(config.news.queries or [])
+    api_key = config.env.anthropic_api_key
 
     def one(a):
         body = extract_text(a.get("url", ""))
         a["body_text"] = body
         try:
-            a["summary"] = _summarize_one(client, model, a, body, sectors, topics)
+            a["summary"] = _summarize_one(provider if has else None, model, api_key, a, body, sectors, topics)
         except Exception as e:  # noqa: BLE001
             log.warning("summary error %r: %s", a.get("title"), e)
             a["summary"] = _fallback_summary(a, body)
         return a
 
-    with ThreadPoolExecutor(max_workers=_CONCURRENCY) as ex:
+    with ThreadPoolExecutor(max_workers=llm.concurrency(provider, _CONCURRENCY)) as ex:
         list(ex.map(one, articles))
     return articles
 
 
-def _summarize_one(client, model, a, body, sectors, topics):
-    if client is None:
+def _summarize_one(provider, model, api_key, a, body, sectors, topics):
+    if provider is None:
         return _fallback_summary(a, body)
     source_text = body if body else (a.get("snippet") or "")
     src_label = ("ARTICLE TEXT" if body
@@ -133,9 +120,9 @@ def _summarize_one(client, model, a, body, sectors, topics):
     )
     user = (f"Title: {a.get('title')}\nSource: {a.get('source')}\n\n"
             f"=== {src_label} ===\n{source_text[:6000]}\n\nWrite the two-paragraph summary now.")
-    resp = client.messages.create(model=model, max_tokens=_MAX_TOKENS, system=system,
-                                  messages=[{"role": "user", "content": user}])
-    return _resp_text(resp).strip() or _fallback_summary(a, body)
+    out = (llm.complete(system, user, model=model, max_tokens=_MAX_TOKENS,
+                        provider=provider, api_key=api_key) or "").strip()
+    return out or _fallback_summary(a, body)
 
 
 def _fallback_summary(a, body):
