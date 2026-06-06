@@ -21,21 +21,35 @@ things only the user can provide**, so ask for those first.
      subscription limits, so keep batches small — a daily scan only scores the handful of
      *new* roles (dedup skips the rest).
 
-## Setup (you can do this)
+## The fast path — `scripts/setup.py`
+After the venv + deps, the front door does scaffold + initial scan + next-steps in one
+idempotent, flag-driven command. It **never overwrites** config/resume/tracker/state, so
+**re-running resumes** where they left off.
+
 ```bash
 python -m venv .venv && . .venv/bin/activate      # isolated venv — see footguns
 pip install -r requirements.txt
-for f in search companies scoring sources news; do cp config/$f.example.yaml config/$f.yaml; done
-cp resume/resume.example.md resume/resume.md       # then replace with the user's real resume
-cp .env.example .env                               # set a key, or rely on claude_cli auto-detect
-```
-Then personalize `config/search.yaml` (keywords, `target_sectors`, location) and
-`config/companies.yaml` (target employers + ATS slugs) from the resume + the user's steer.
 
-## Run
+# RETURNING? (a tracker already exists at output/jobs.csv) — just resume + refresh:
+python scripts/setup.py
+
+# FRESH? Personalize config/search.yaml from the resume + their steer FIRST (below), then:
+python scripts/setup.py --resume /path/to/resume.md \
+    [--linkedin /path/to/Connections.csv] [--provider claude_cli]   # add --install-cron to schedule it
+```
+`setup.py` detects returning-vs-fresh (and prints a tracker summary if returning), scaffolds
+any missing `config/*.yaml` + `.env`, places the resume/LinkedIn export, runs the scan (+ news),
+and prints the `serve.py` command plus the daily-cron lines. It's loud about a missing provider
+or an empty scan.
+
+**Your judgment step (do this before the scan on a fresh setup):** read the resume + the user's
+one-line steer and edit `config/search.yaml` (keywords, `target_sectors`, location) and
+`config/companies.yaml` (target employers + ATS slugs). With no steer, the example config is used.
+
+## Manual equivalents
 ```bash
 python scripts/run.py --config config/search.yaml   # scan → score → CSV tracker + dashboard
-python scripts/news.py                               # optional: the relevant-news board
+python scripts/news.py                               # the relevant-news board
 python scripts/serve.py                              # http://127.0.0.1:8765/  (Jobs + News)
 ```
 
