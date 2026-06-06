@@ -315,11 +315,26 @@ tracks, just unscored.* Other `.env`: `JOB_SCOUT_SINK` (`csv`|`google_sheets`),
 
 ## Scheduling
 
-The default CSV sink runs anywhere — cron, systemd timer, or the included GitHub
-Actions workflows. Two jobs:
+Three recurring jobs:
 
-- **Discovery** (e.g. daily): `python scripts/run.py --config config/search.yaml`
-- **Strategist** (e.g. every 3 days): `python scripts/strategist.py --config config/search.yaml`
+- **Daily scan** — `python scripts/run.py --config config/search.yaml` (+ `python scripts/news.py` for the news board)
+- **Strategist** (every ~3 days) — `python scripts/strategist.py --config config/search.yaml`
+
+The "recursive" behavior — incremental dedup (`state/seen_hashes.json`), the
+performance **ledger** (`state/discovery.json`), and the strategist's
+self-tuning — **only works if `state/` persists between runs.**
+
+**Local (cron / systemd):** the disk persists, so state carries over for free —
+and a local machine with the **Claude Code CLI can run scoring with no API key**
+(see [Quickstart](#quickstart)). This is the recommended way to run it continuously.
+
+**GitHub Actions (included workflows):** `daily.yml` (daily scan + news + artifact),
+`strategist.yml` (every 3 days), `on_demand.yml` (manual/API). State is persisted
+between runs with **`actions/cache`** — *not* committed, because it holds your target
+companies + interest signals and the repo is public. Results (CSV/HTML are git-ignored)
+are uploaded as a **`job-scout-output` artifact**, or write straight to a Sheet via the
+Google Sheets sink. CI has no Claude Code, so set an **`ANTHROPIC_API_KEY`** secret
+(optionally `ANTHROPIC_BASE_URL` for a compatible gateway like MiniMax).
 
 Keep volume low and cadence daily — small result counts and fresh-only windows.
 Respectful scraping is ban-resistant scraping.

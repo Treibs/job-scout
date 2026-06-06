@@ -1,0 +1,43 @@
+name: strategist-job-scout
+# The self-tuning loop: every few days the strategist reads the discovery ledger +
+# recent high-scorers + your interest signals + resume, and proposes guarded
+# keyword/company additions into config/discovery_additions.yaml (merged at load).
+# It shares the rolling cache with the daily scan, so it learns from accumulated
+# state and its additions persist into the next scan — without committing anything.
+on:
+  schedule:
+    - cron: "0 12 */3 * *"     # every ~3 days, 12:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: job-scout             # shares the daily group so they never overlap (shared cache)
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+
+      - name: Restore rolling state (ledger drives the proposals; adds persist back)
+        uses: actions/cache@v4
+        with:
+          path: |
+            state
+            config/discovery_additions.yaml
+          key: jobscout-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            jobscout-state-
+
+      - name: Re-tune the search (strategist)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}   # optional (e.g. MiniMax gateway)
+        run: python scripts/strategist.py --config config/search.yaml

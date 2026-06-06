@@ -1,35 +1,23 @@
 name: on-demand-job-scout
-# A manual / API-triggered variant of the daily pipeline. Same job body as
-# daily.yml, but with no cron schedule — it only ever runs when you ask it to.
+# A manual / API-triggered variant of the daily pipeline. Same body as daily.yml,
+# but with no cron schedule — it only ever runs when you ask it to.
 #
 # You do NOT strictly need this file: daily.yml already declares
-# `workflow_dispatch: {}`, so you can trigger that one manually instead. This
-# file exists for clarity and to give on-demand runs their own name in the
-# Actions UI and run history.
+# `workflow_dispatch: {}`, so you can trigger that one manually instead. This file
+# exists for clarity and to give on-demand runs their own name in the Actions UI.
 #
-# Three ways to trigger an on-demand run:
-#   1. GitHub UI: Actions tab -> "on-demand-job-scout" -> "Run workflow".
-#   2. gh CLI:    gh workflow run on_demand.yml
-#   3. REST API:  POST /repos/{owner}/{repo}/actions/workflows/on_demand.yml/dispatches
-#                 (or .../workflows/daily.yml/dispatches to fire daily.yml)
-#      Example:
-#        curl -X POST \
-#          -H "Authorization: Bearer $GITHUB_TOKEN" \
-#          -H "Accept: application/vnd.github+json" \
-#          https://api.github.com/repos/OWNER/REPO/actions/workflows/on_demand.yml/dispatches \
-#          -d '{"ref":"main"}'
-#   This makes it easy for an agent or a Google Sheets Apps Script button to
-#   kick off a fresh scan.
+# Trigger it via: the Actions tab "Run workflow" button, `gh workflow run
+# on_demand.yml`, or POST /repos/OWNER/REPO/actions/workflows/on_demand.yml/dispatches.
 
 on:
   workflow_dispatch: {}
 
 concurrency:
-  group: job-scout              # shares the daily group so the two never overlap
+  group: job-scout              # shares the daily group so they never overlap (shared cache)
   cancel-in-progress: false
 
 permissions:
-  contents: write              # to commit state back
+  contents: read
 
 jobs:
   run:
@@ -40,17 +28,39 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Run pipeline
+
+      - name: Restore rolling state (dedup memory · ledger · news cache · strategist adds)
+        uses: actions/cache@v4
+        with:
+          path: |
+            state
+            config/discovery_additions.yaml
+          key: jobscout-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            jobscout-state-
+
+      - name: Scan (gather -> score -> tracker + dashboard + ledger)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-          PROXY_URLS: ${{ secrets.PROXY_URLS }}   # optional
+          PROXY_URLS: ${{ secrets.PROXY_URLS }}
         run: python scripts/run.py --config config/search.yaml
-      - name: Commit updated state
-        run: |
-          git config user.name "job-scout-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add state/
-          git diff --staged --quiet || git commit -m "chore: on-demand state update"
-          git push
+
+      - name: Refresh the news board
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+        run: python scripts/news.py --config config/search.yaml
+
+      - name: Upload tracker + dashboards
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-scout-output
+          path: |
+            output/jobs.csv
+            output/jobs.html
+            output/news.html
+          if-no-files-found: ignore

@@ -5,11 +5,11 @@ on:
   workflow_dispatch: {}        # allows manual runs too
 
 concurrency:
-  group: job-scout
+  group: job-scout             # daily / on-demand / strategist never overlap (shared cache)
   cancel-in-progress: false
 
 permissions:
-  contents: write              # to commit state back
+  contents: read
 
 jobs:
   run:
@@ -20,17 +20,44 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Run pipeline
+
+      # Rolling state across runs — WITHOUT committing it (state holds your target
+      # companies + interest signals; never push that to a public repo). The unique
+      # key always saves a fresh entry; restore-keys pulls the most recent one.
+      - name: Restore rolling state (dedup memory · ledger · news cache · strategist adds)
+        uses: actions/cache@v4
+        with:
+          path: |
+            state
+            config/discovery_additions.yaml
+          key: jobscout-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            jobscout-state-
+
+      - name: Daily scan (gather -> score -> tracker + dashboard + ledger)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}   # optional (e.g. MiniMax gateway)
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-          PROXY_URLS: ${{ secrets.PROXY_URLS }}   # optional
+          PROXY_URLS: ${{ secrets.PROXY_URLS }}                   # optional
         run: python scripts/run.py --config config/search.yaml
-      - name: Commit updated state
-        run: |
-          git config user.name "job-scout-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add state/
-          git diff --staged --quiet || git commit -m "chore: nightly state update"
-          git push
+
+      - name: Refresh the news board
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+        run: python scripts/news.py --config config/search.yaml
+
+      # The CSV/HTML sink is git-ignored, so surface results as a downloadable
+      # artifact (or use the Google Sheets sink to write straight to a Sheet).
+      - name: Upload tracker + dashboards
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-scout-output
+          path: |
+            output/jobs.csv
+            output/jobs.html
+            output/news.html
+          if-no-files-found: ignore
