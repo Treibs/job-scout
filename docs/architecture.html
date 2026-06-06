@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>job-scout · how it works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0c0f; --surf:#14161b; --surf2:#191c23; --line:#262a33; --line2:#323845;
+    --ink:#ece9e2; --dim:#9aa0ab; --faint:#646a76; --amber:#f5b14c; --teal:#54d6c4; --green:#7eeaa8; --rose:#e8736b;
+    --mono:'IBM Plex Mono',ui-monospace,monospace; --sans:'IBM Plex Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:
+      radial-gradient(900px 520px at 90% -12%,rgba(245,177,76,.07),transparent 60%),
+      radial-gradient(760px 520px at -6% 108%,rgba(84,214,196,.06),transparent 55%),var(--bg);
+    color:var(--ink);font-family:var(--sans);line-height:1.55;padding:52px 22px 90px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1000px;margin:0 auto}
+  .kick{font-family:var(--mono);font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--teal)}
+  h1{font-family:var(--mono);font-weight:700;font-size:31px;letter-spacing:-1px;margin:10px 0 6px}
+  h1 .s{color:var(--amber)}
+  .lede{color:var(--dim);font-size:15.5px;max-width:760px}
+  .part{display:flex;align-items:baseline;gap:12px;margin:54px 0 4px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .part .tag{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;padding:3px 9px;border-radius:999px}
+  .part.loc .tag{color:var(--green);border:1px solid rgba(126,234,168,.4)}
+  .part.gh  .tag{color:var(--amber);border:1px solid rgba(245,177,76,.4)}
+  .part h2{font-family:var(--mono);font-size:18px;letter-spacing:-.3px;color:var(--ink)}
+  .part .note{margin-left:auto;color:var(--faint);font-size:12.5px;font-family:var(--mono)}
+  h3{font-family:var(--mono);font-size:13.5px;letter-spacing:.3px;color:var(--ink);margin:30px 0 0;display:flex;gap:9px;align-items:baseline}
+  h3 .num{color:var(--teal);font-weight:700}
+  .cap{color:var(--dim);font-size:13px;margin:3px 0 0;max-width:740px}
+  code{font-family:var(--mono);font-size:12px;color:var(--teal);background:var(--surf2);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .panel{background:var(--surf);border:1px solid var(--line);border-radius:12px;padding:18px 10px 10px;margin:10px 0 4px;overflow-x:auto}
+  .mermaid{font-family:var(--mono)!important}
+  /* storage cards */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:10px;margin:14px 0 4px}
+  .card{background:var(--surf);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .card .f{font-family:var(--mono);font-size:12px;color:var(--amber)}
+  .card .d{color:var(--dim);font-size:12.5px;margin-top:3px}
+  .card .pii{font-family:var(--mono);font-size:10px;color:var(--rose);letter-spacing:1px;text-transform:uppercase}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--faint)}
+  td b{color:#f5e9d4} .lo{color:var(--green)} .ghc{color:var(--amber)}
+  .foot{margin-top:30px;font-family:var(--mono);font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kick">job<span style="color:var(--amber)">/</span>scout · how it works</div>
+  <h1>One engine <span class="s">·</span> two homes</h1>
+  <p class="lede">The same pipeline runs either <b style="color:var(--green)">on your machine</b> (state on disk, can score
+  key-free via Claude Code) or <b style="color:var(--amber)">on GitHub Actions</b> (state in a private cache, scores with an
+  API-key secret). Each step below is its own small diagram — read them top to bottom.</p>
+
+  <!-- ====================== PART 1 · LOCAL ====================== -->
+  <div class="part loc">
+    <span class="tag">Part 1</span>
+    <h2>On your machine</h2>
+    <span class="note">local-first · runs offline-ish, key optional</span>
+  </div>
+
+  <h3><span class="num">1.1</span> The daily scan — how a listing becomes a scored match</h3>
+  <p class="cap">A linear pipeline. Each new role is gathered, cleaned, de-duplicated, enriched, then scored against your résumé.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  saB["Job boards and ATS<br/>Indeed - LinkedIn - Workday"] --> saN["Normalize<br/>one common shape"]
+  saN --> saD["Dedupe<br/>skip ones seen before"]
+  saD --> saE["Enrich<br/>full description for top matches"]
+  saE --> saS["Score<br/>fit vs your resume"]
+  saS --> saC[("output/jobs.csv<br/>your tracker")]
+  saL{{"LLM provider<br/>MiniMax key OR Claude CLI"}} -. "does the scoring" .-> saS
+  </pre></div>
+
+  <h3><span class="num">1.2</span> The news board — how headlines become a relevant feed</h3>
+  <p class="cap">Same idea, separate pipeline. Free sources in; a scored, summarized feed out. No API key needed to fetch.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  nwQ["Google News - GDELT<br/>free, no key"] --> nwD["Dedupe"]
+  nwD --> nwS["Score relevance<br/>+ short summary"]
+  nwS --> nwJ[("state/news.json<br/>the feed")]
+  nwL{{"LLM provider"}} -. "summarizes" .-> nwS
+  </pre></div>
+
+  <h3><span class="num">1.3</span> Reviewing — the two dashboards</h3>
+  <p class="cap">A tiny local server renders both feeds at <code>localhost:8765</code>. Your triage saves straight back into the files.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  rvC[("jobs.csv")] --> rvSV["Dashboards<br/>serve.py - localhost:8765"]
+  rvNJ[("news.json")] --> rvSV
+  rvSV --> rvY(["You<br/>filter - status - notes - vote"])
+  rvY -- "saved back" --> rvC
+  rvCN[("LinkedIn connections<br/>optional")] -. "who you know overlay" .-> rvSV
+  </pre></div>
+
+  <h3><span class="num">1.4</span> The feedback loop — why it gets smarter</h3>
+  <p class="cap">The cycle that closes it. Your signals feed a strategist that re-tunes what gets searched next — then it loops.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  fbA["1 - Scan<br/>new roles only"] --> fbB["2 - Score + summarize"]
+  fbB --> fbC["3 - You triage<br/>interested - applied - vote"]
+  fbC --> fbD[("4 - Ledger + feedback<br/>discovery.json + jobs.csv")]
+  fbD --> fbE["5 - Strategist<br/>every 3 days - resume guardrail"]
+  fbE --> fbF[("6 - discovery_additions.yaml<br/>new keywords / companies")]
+  fbF --> fbA
+  </pre></div>
+
+  <h3><span class="num">1.5</span> What lives on disk — the &ldquo;memory&rdquo;</h3>
+  <p class="cap">Persistence is what makes every run incremental. Re-running <code>scripts/setup.py</code> just picks up from here.</p>
+  <div class="grid">
+    <div class="card"><div class="f">output/jobs.csv</div><div class="d">Your tracker — every role plus your statuses &amp; notes.</div></div>
+    <div class="card"><div class="f">state/news.json</div><div class="d">The news feed cache (keeps your 👍/👎).</div></div>
+    <div class="card"><div class="f">state/seen_hashes.json</div><div class="d">What's already been seen — powers cross-run dedupe.</div></div>
+    <div class="card"><div class="f">state/discovery.json</div><div class="d">The ledger — what each keyword/company yields.</div></div>
+    <div class="card"><div class="f">config/discovery_additions.yaml</div><div class="d">The strategist's proposed keywords &amp; companies.</div></div>
+    <div class="card"><div class="f">resume/resume.md</div><div class="d">What scoring compares each role against. <span class="pii">private</span></div></div>
+    <div class="card"><div class="f">data/linkedin_connections.csv</div><div class="d">Your network, for the 🤝 overlay. <span class="pii">private · optional</span></div></div>
+  </div>
+
+  <!-- ====================== PART 2 · GITHUB ====================== -->
+  <div class="part gh">
+    <span class="tag">Part 2</span>
+    <h2>On GitHub Actions</h2>
+    <span class="note">hosted · public repo · no machine to keep on</span>
+  </div>
+
+  <h3><span class="num">2.1</span> What starts a run</h3>
+  <p class="cap">Three triggers, all landing on a fresh throwaway VM. No personal data ever lives in the public repo.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  tgT1["Daily cron<br/>daily.yml"] --> tgGH["GitHub Actions"]
+  tgT2["Every 3 days<br/>strategist.yml"] --> tgGH
+  tgT3["Manual / API<br/>on_demand.yml"] --> tgGH
+  tgGH --> tgR["Fresh runner<br/>a clean VM each run"]
+  </pre></div>
+
+  <h3><span class="num">2.2</span> What one run does</h3>
+  <p class="cap">A clean VM has no memory, so it restores state at the start and saves it at the end — and ships results out.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  rnCO["Checkout code"] --> rnPIP["pip install"]
+  rnPIP --> rnRST["Restore state<br/>from cache"]
+  rnRST --> rnRUN["Run<br/>scan + news"]
+  rnRUN --> rnSAV["Save state<br/>to cache"]
+  rnRUN --> rnART["Upload results<br/>as artifact"]
+  </pre></div>
+
+  <h3><span class="num">2.3</span> Where memory and the key come from</h3>
+  <p class="cap">Memory is the cache (restored in, saved out — never committed, since it holds your targets). The key is a secret. Results leave as a download or a Sheet.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  ckCACHE[("actions/cache<br/>your state - private")] -- "restore" --> ckRUN["The run"]
+  ckRUN -- "save" --> ckCACHE
+  ckSEC["Secrets<br/>ANTHROPIC_API_KEY"] -- "the key" --> ckRUN
+  ckRUN --> ckOUT["Download artifact<br/>or write to Google Sheet"]
+  </pre></div>
+
+  <h3><span class="num">2.4</span> How you actually see the results — and what's clickable</h3>
+  <p class="cap">The key difference. Local runs a <b>live server</b> you click and it saves. GitHub has <b>no server</b> — you get a
+  static file to download or a Sheet, so filtering works but the file can't save your triage back.</p>
+  <div class="panel"><pre class="mermaid">
+flowchart LR
+  vwRUN["A finished run produces<br/>jobs.html - news.html - jobs.csv"] --> vwL["LOCAL<br/>serve.py - live at localhost:8765"]
+  vwRUN --> vwA["GITHUB<br/>download artifact, open jobs.html"]
+  vwRUN --> vwS["GITHUB<br/>Google Sheet (optional)"]
+  vwL --> vwLY(["You: filter + triage<br/>clicks SAVE back to the CSV"])
+  vwA --> vwAY(["You: filter only<br/>static file - no save-back"])
+  vwS --> vwSY(["You: triage in the Sheet"])
+  </pre></div>
+
+  <!-- ====================== PART 3 · CONTRAST ====================== -->
+  <div class="part">
+    <span class="tag" style="color:var(--teal);border:1px solid rgba(84,214,196,.4)">Part 3</span>
+    <h2>Local vs GitHub, side by side</h2>
+  </div>
+  <table>
+    <tr><th>&nbsp;</th><th class="lo">Local (yours)</th><th class="ghc">GitHub Actions</th></tr>
+    <tr><td><b>Scheduler</b></td><td>cron / systemd on your box</td><td>workflow <code>cron:</code> (daily + 3-day + manual)</td></tr>
+    <tr><td><b>State / memory</b></td><td>local disk — free, persistent</td><td><code>actions/cache</code> (restore → save)</td></tr>
+    <tr><td><b>Scoring LLM</b></td><td>API key <i>or</i> Claude Code CLI (no key)</td><td>API key from Secrets (no Claude Code in CI)</td></tr>
+    <tr><td><b>See results</b></td><td>live dashboard at <code>localhost:8765</code></td><td>download artifact, or Google Sheet</td></tr>
+    <tr><td><b>Self-tuning</b></td><td>strategist cron → discovery_additions.yaml</td><td>strategist.yml → cached discovery_additions.yaml</td></tr>
+    <tr><td><b>Personal data</b></td><td>stays on disk (git-ignored)</td><td>never in the repo; state only in the private cache</td></tr>
+  </table>
+
+  <p class="foot">job-scout · github.com/Treibs/job-scout · diagrams rendered with Mermaid</p>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: false, theme: 'dark', securityLevel: 'loose',
+    flowchart: { curve: 'basis', padding: 14, nodeSpacing: 46, rankSpacing: 58, useMaxWidth: true },
+    themeVariables: {
+      fontFamily: 'IBM Plex Mono, monospace', fontSize: '14px',
+      primaryColor: '#191c23', primaryBorderColor: '#3a4150', primaryTextColor: '#ece9e2',
+      lineColor: '#7a828f', clusterBkg: '#101216', clusterBorder: '#2c313b',
+      secondaryColor: '#14161b', tertiaryColor: '#14161b'
+    }
+  });
+  // Render each diagram independently so one failure can't abort the rest.
+  // Read innerHTML (not textContent) so <br/> line breaks survive, then unescape entities.
+  const blocks = document.querySelectorAll('pre.mermaid');
+  for (let i = 0; i < blocks.length; i++) {
+    const el = blocks[i];
+    const code = el.innerHTML
+      .replace(/<br\s*\/?>/gi, '<br/>')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+      .replace(/&amp;/g, '&')
+      .trim();
+    try {
+      const { svg } = await mermaid.render('mmd_' + i, code);
+      el.innerHTML = svg;
+      el.removeAttribute('class');   // drop .mermaid styling now that it's an SVG
+    } catch (e) {
+      el.innerHTML = '<span style="color:#e8736b;font-family:monospace">diagram ' + i + ' error: ' + (e && e.message) + '</span>';
+    }
+  }
+</script>
+</body>
+</html>

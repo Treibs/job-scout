@@ -339,6 +339,36 @@ Google Sheets sink. CI has no Claude Code, so set an **`ANTHROPIC_API_KEY`** sec
 Keep volume low and cadence daily — small result counts and fresh-only windows.
 Respectful scraping is ban-resistant scraping.
 
+### Where it runs — local vs GitHub Actions
+
+**One CI run** (ephemeral VM: restore state → run → save state + ship results):
+
+```mermaid
+flowchart LR
+  T["cron / manual<br/>daily · 3-day · on-demand"] --> R["Ephemeral runner<br/>(fresh VM each run)"]
+  C[("actions/cache<br/>state — never committed")] -- restore --> R
+  R -- save --> C
+  S["Secrets<br/>ANTHROPIC_API_KEY"] -- key --> R
+  R --> O["Artifact (jobs.html / jobs.csv)<br/>or Google Sheet"]
+```
+
+**How you see results** — the practical difference: local runs a **live server** you
+click and it saves; GitHub has **no server**, so you get a static file or a Sheet
+(filtering works, but a downloaded file can't save your triage back):
+
+```mermaid
+flowchart LR
+  RUN["A finished run produces<br/>jobs.html · news.html · jobs.csv"] --> LOC["Local: serve.py<br/>live at localhost:8765"]
+  RUN --> ART["GitHub: download artifact<br/>open jobs.html"]
+  RUN --> SH["GitHub: Google Sheet<br/>(optional)"]
+  LOC --> LY(["filter + triage —<br/>saves back to the CSV"])
+  ART --> AY(["filter only —<br/>static file, no save-back"])
+  SH --> SY(["triage in the Sheet"])
+```
+
+> Full visual walkthrough (all stages, both homes, side-by-side): open
+> [`docs/architecture.html`](docs/architecture.html) locally.
+
 ---
 
 ## Scripts
