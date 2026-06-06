@@ -94,24 +94,21 @@ def test_strategist_apply_writes_additions(tmp_path):
     assert data["keywords"] == ["Chief AI Officer"]
 
 
-def test_strategist_propose_filters_by_relevance():
-    class FakeResp:
-        content = [type("B", (), {"type": "text", "text": json.dumps({
-            "add_keywords": [
-                {"keyword": "Chief AI Officer", "fit_reason": "fits exec AI goal", "relevance": 0.9},
-                {"keyword": "Barista", "fit_reason": "weak", "relevance": 0.2},
-            ],
-            "add_companies": [{"name": "Northwind Bank", "sector": "banking",
-                               "fit_reason": "Chicago bank, AI leadership", "relevance": 0.85}],
-            "remove_keywords": ["Dead Keyword"],
-            "notes": "leaning into banking + exec AI titles",
-        })})()]
-    class FakeClient:
-        class messages:
-            @staticmethod
-            def create(**kw): return FakeResp()
+def test_strategist_propose_filters_by_relevance(monkeypatch):
+    from job_scout import llm
+    payload = json.dumps({
+        "add_keywords": [
+            {"keyword": "Chief AI Officer", "fit_reason": "fits exec AI goal", "relevance": 0.9},
+            {"keyword": "Barista", "fit_reason": "weak", "relevance": 0.2},
+        ],
+        "add_companies": [{"name": "Northwind Bank", "sector": "banking",
+                           "fit_reason": "Chicago bank, AI leadership", "relevance": 0.85}],
+        "remove_keywords": ["Dead Keyword"],
+        "notes": "leaning into banking + exec AI titles",
+    })
+    monkeypatch.setattr(llm, "complete", lambda *a, **k: payload)
     out = strategist.propose({"current_keywords": []}, "resume text",
-                             FakeClient(), "MiniMax-M2.5-highspeed")
+                             model="m", provider="anthropic")
     kws = [k["keyword"] for k in out["add_keywords"]]
     assert kws == ["Chief AI Officer"]          # low-relevance "Barista" dropped
     assert out["add_companies"][0]["name"] == "Northwind Bank"
