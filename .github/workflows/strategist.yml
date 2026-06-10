@@ -4,9 +4,12 @@ name: strategist-job-scout
 # keyword/company additions into config/discovery_additions.yaml (merged at load).
 # It shares the rolling cache with the daily scan, so it learns from accumulated
 # state and its additions persist into the next scan — without committing anything.
+# Manual-only by default — schedule on your deployment machine instead (see
+# daily.yml) so additions land in YOUR config, not CI's cache. To run in CI on
+# a cadence, restore:
+#   schedule:
+#     - cron: "0 12 */3 * *"   # every ~3 days, 12:00 UTC
 on:
-  schedule:
-    - cron: "0 12 */3 * *"     # every ~3 days, 12:00 UTC
   workflow_dispatch: {}
 
 concurrency:
