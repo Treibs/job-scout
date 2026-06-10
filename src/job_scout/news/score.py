@@ -34,7 +34,7 @@ def score_relevance(articles: list[dict], config) -> list[dict]:
     if not articles:
         return articles
     provider = llm.resolve_provider(config)
-    if not llm.available(provider, config):
+    if not config.news.llm or not llm.available(provider, config):
         for a in articles:
             a.setdefault("relevance", None)
             a.setdefault("topic", "other")
@@ -85,7 +85,7 @@ def summarize(articles: list[dict], config) -> list[dict]:
     if not articles:
         return articles
     provider = llm.resolve_provider(config)
-    has = llm.available(provider, config)
+    has = config.news.llm and llm.available(provider, config)
     model, sectors = config.news.model, (config.search.target_sectors or "")
     topics = ", ".join(config.news.queries or [])
     api_key = config.env.anthropic_api_key

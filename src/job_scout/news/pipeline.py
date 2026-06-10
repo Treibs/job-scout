@@ -40,6 +40,24 @@ def gather(config) -> list[dict]:
     return out
 
 
+def block(articles: list[dict], config) -> list[dict]:
+    """Deterministic noise gate (the only gate when news.llm is off): drop articles
+    whose title/snippet matches a block term, or whose source is block-listed.
+    Case-insensitive substring matching — keep terms specific to avoid surprises."""
+    terms = [t.lower() for t in (config.news.block_terms or [])]
+    srcs = [s.lower() for s in (config.news.block_sources or [])]
+    if not terms and not srcs:
+        return articles
+    kept = []
+    for a in articles:
+        text = f"{a.get('title') or ''} {a.get('snippet') or ''}".lower()
+        src = (a.get("source") or "").lower()
+        if any(t in text for t in terms) or any(s in src for s in srcs):
+            continue
+        kept.append(a)
+    return kept
+
+
 def dedupe(articles: list[dict]) -> list[dict]:
     seen_url: set[str] = set()
     kept: list[dict] = []
@@ -61,7 +79,7 @@ def run(config, store_path=None) -> dict:
     if not config.news.enabled:
         return {"enabled": False}
     raw = gather(config)
-    deduped = dedupe(raw)
+    deduped = dedupe(block(raw, config))
     store = STORE.load(store_path)
     seen = STORE.seen_urls(store)
     fresh = [a for a in deduped if a["url"] not in seen]
