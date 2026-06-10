@@ -1,8 +1,12 @@
 name: daily-job-scout
+# Manual-only by default. If you deploy on an always-on machine, schedule there
+# instead (cron + scripts/run.py) so results land on YOUR tracker — a scheduled
+# CI run writes to an artifact + its own cache, which nothing downstream reads.
+# To run fully in CI instead, restore a schedule block here, e.g.:
+#   schedule:
+#     - cron: "0 11 * * *"    # 11:00 UTC daily (~6am US Central)
 on:
-  schedule:
-    - cron: "0 11 * * *"      # 11:00 UTC daily (~6am US Central). Adjust to taste.
-  workflow_dispatch: {}        # allows manual runs too
+  workflow_dispatch: {}        # manual runs (Actions tab / gh workflow run)
 
 concurrency:
   group: job-scout             # daily / on-demand / strategist never overlap (shared cache)
