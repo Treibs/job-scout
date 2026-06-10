@@ -155,7 +155,7 @@ def test_pipeline_run_gates_and_keeps(tmp_path, monkeypatch):
 
     cfg = SimpleNamespace(
         news=SimpleNamespace(enabled=True, queries=["q"], max_per_query=10, freshness_hours=96,
-                             relevance_threshold=0.6,
+                             relevance_threshold=0.6, block_terms=[], block_sources=[],
                              sources=SimpleNamespace(google_news=True, gdelt=False, searxng=False, searxng_url="")),
         search=SimpleNamespace(target_sectors=""))
     store_p = tmp_path / "news.json"
@@ -195,8 +195,54 @@ def test_relevance_failure_drops_when_keyed(monkeypatch):
     monkeypatch.setattr(llm, "available", lambda provider, cfg=None: True)
     monkeypatch.setattr(llm, "complete", lambda *a, **k: "not json at all")
     cfg = SimpleNamespace(env=SimpleNamespace(anthropic_api_key="k"),
-                          news=SimpleNamespace(model="m", queries=[]),
+                          news=SimpleNamespace(model="m", queries=[], llm=True),
                           search=SimpleNamespace(target_sectors=""))
     arts = [{"title": "X", "snippet": "y", "url": "https://e.test/1"}]
     score.score_relevance(arts, cfg)
     assert arts[0]["relevance"] == 0.0   # keyed + failed -> drop, not keep
+
+
+def test_block_filters_terms_and_sources():
+    """block() drops on title/snippet term or source match, case-insensitively;
+    empty block lists pass everything through untouched."""
+    from types import SimpleNamespace
+    from job_scout.news import pipeline
+
+    arts = [
+        {"title": "Acme Appoints Chief AI Officer", "snippet": "", "source": "Reuters"},
+        {"title": "EU AI Act enforcement begins", "snippet": "", "source": "FT"},
+        {"title": "Banks scale GenAI", "snippet": "wins industry award", "source": "FT"},
+        {"title": "Plant automation results", "snippet": "", "source": "PR Newswire"},
+    ]
+    cfg = SimpleNamespace(news=SimpleNamespace(block_terms=["appoints", "award"],
+                                               block_sources=["pr newswire"]))
+    kept = pipeline.block(arts, cfg)
+    assert [a["title"] for a in kept] == ["EU AI Act enforcement begins"]
+
+    cfg_off = SimpleNamespace(news=SimpleNamespace(block_terms=[], block_sources=[]))
+    assert pipeline.block(arts, cfg_off) == arts
+
+
+def test_llm_false_skips_scoring_and_summary_llm(monkeypatch):
+    """news.llm: false must never call the provider — relevance stays None (keep-all
+    digest path) and summaries come from the body/snippet fallback, even with a key."""
+    from types import SimpleNamespace
+    from job_scout.news import score
+
+    from job_scout import llm
+    monkeypatch.setattr(llm, "resolve_provider", lambda cfg=None, explicit=None: "anthropic")
+    monkeypatch.setattr(llm, "available", lambda provider, cfg=None: True)
+
+    def boom(*a, **k):
+        raise AssertionError("llm.complete must not be called when news.llm is false")
+
+    monkeypatch.setattr(llm, "complete", boom)
+    monkeypatch.setattr(score, "extract_text", lambda url: "Body para.\n\nMore body.")
+    cfg = SimpleNamespace(env=SimpleNamespace(anthropic_api_key="k"),
+                          news=SimpleNamespace(model="m", queries=[], llm=False),
+                          search=SimpleNamespace(target_sectors=""))
+    arts = [{"title": "X", "snippet": "y", "url": "https://e.test/1"}]
+    score.score_relevance(arts, cfg)
+    assert arts[0]["relevance"] is None and arts[0]["topic"] == "other"
+    score.summarize(arts, cfg)
+    assert arts[0]["summary"]   # fallback summary built without the LLM

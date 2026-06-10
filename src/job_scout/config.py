@@ -126,6 +126,10 @@ class NewsSourcesCfg(BaseModel):
 
 class NewsCfg(BaseModel):
     enabled: bool = True
+    # Use the LLM for news relevance scoring + summaries. False = keep every fresh
+    # article (no relevance gate) and build summaries from the extracted body text —
+    # zero token spend on news.
+    llm: bool = True
     # Role/domain trend phrases AND sector queries to search. Each becomes one
     # query per enabled source. If empty, falls back to terms from target_sectors.
     queries: list[str] = Field(default_factory=list)
@@ -133,6 +137,10 @@ class NewsCfg(BaseModel):
     freshness_hours: int = 96
     max_per_query: int = 20
     relevance_threshold: float = 0.6
+    # Deterministic noise gate (the only gate when llm is off): drop articles whose
+    # title/snippet contains any block term, or whose source matches block_sources.
+    block_terms: list[str] = Field(default_factory=list)
+    block_sources: list[str] = Field(default_factory=list)
     model: str = "MiniMax-M2.5-highspeed"
 
 
